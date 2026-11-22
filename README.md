@@ -4,7 +4,7 @@ FemMobs spawns configurable arena waves on Paper and Folia 26.3. It is a Kotlin 
 
 ## Install
 
-1. Copy `build/libs/FemMobs-1.0.0.jar` into the server's `plugins` folder (or load it with your PlugManX version).
+1. Copy `build/libs/FemMobs-1.0.1.jar` into the server's `plugins` folder (or load it with your PlugManX version).
 2. Start the server once. FemMobs creates `plugins/FemMobs/config.yml`.
 3. Edit the arena world, mob profiles, equipment, attributes, effects, and wave coordinates in that config.
 4. Run `/femmobs reload` to apply config changes. Reload stops the current wave and resets its tracking.

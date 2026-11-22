@@ -10,6 +10,7 @@ import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.World
 import org.bukkit.command.CommandSender
+import org.bukkit.configuration.ConfigurationSection
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
@@ -123,34 +124,64 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     private fun migrateLegacyConfigIfNeeded() {
         val hasProfiles = config.getConfigurationSection("mobs") != null
         val hasWaveSections = config.getConfigurationSection("arena.waves") != null
-        if (hasProfiles && hasWaveSections) return
+        val rawWaves = config.get("arena.waves")
+        val hasMapWaveData = rawWaves is Map<*, *> && rawWaves.values.all { value ->
+            val row = value as? Map<*, *>
+            row != null && row["spawns"] is List<*>
+        }
+        if (hasProfiles && (hasWaveSections || hasMapWaveData)) return
 
         val bundled = YamlConfiguration()
-        getResource("config.yml")!!.bufferedReader().use(bundled::load)
+        getResource("config.yml")!!.bufferedReader().use { bundled.load(it) }
         if (!hasProfiles) config.set("mobs", bundled.get("mobs"))
 
         if (!hasWaveSections) {
-            val legacyWaves = config.getList("arena.waves").orEmpty()
-            val migrated = linkedMapOf<String, Any>()
-            legacyWaves.forEachIndexed { waveIndex, rawWave ->
-                val entries = rawWave as? List<*> ?: return@forEachIndexed
-                val spawns = entries.mapNotNull { rawEntry ->
-                    val row = rawEntry as? Map<*, *> ?: return@mapNotNull null
-                    val profile = row["mob"]?.toString()?.lowercase() ?: return@mapNotNull null
-                    linkedMapOf(
-                        "profile" to profile,
-                        "x" to (row["x"] ?: return@mapNotNull null),
-                        "y" to (row["y"] ?: return@mapNotNull null),
-                        "z" to (row["z"] ?: return@mapNotNull null),
-                        "amount" to 1,
-                        "yaw" to 0,
-                        "pitch" to 0,
-                        "spread" to 0,
-                    )
+            val waveRows = when (val savedWaves = config.get("arena.waves")) {
+                is Map<*, *> -> savedWaves.entries.mapNotNull { entry ->
+                    val key = entry.key?.toString() ?: return@mapNotNull null
+                    val row = entry.value as? Map<*, *> ?: return@mapNotNull null
+                    key to row
                 }
-                migrated["wave${waveIndex + 1}"] = mapOf("name" to "Wave ${waveIndex + 1}", "spawns" to spawns)
+                is List<*> -> savedWaves.mapIndexedNotNull { index, rawWave ->
+                    val entries = rawWave as? List<*> ?: return@mapIndexedNotNull null
+                    val spawns = entries.mapNotNull { rawEntry ->
+                        val row = rawEntry as? Map<*, *> ?: return@mapNotNull null
+                        val profile = row["mob"]?.toString()?.lowercase() ?: return@mapNotNull null
+                        mapOf(
+                            "profile" to profile,
+                            "x" to (row["x"] ?: return@mapNotNull null),
+                            "y" to (row["y"] ?: return@mapNotNull null),
+                            "z" to (row["z"] ?: return@mapNotNull null),
+                            "amount" to 1,
+                            "yaw" to 0,
+                            "pitch" to 0,
+                            "spread" to 0,
+                        )
+                    }
+                    "wave${index + 1}" to mapOf("name" to "Wave ${index + 1}", "spawns" to spawns)
+                }
+                else -> emptyList()
+            }.ifEmpty {
+                val defaults = bundled.getConfigurationSection("arena.waves")!!
+                defaults.getKeys(false).mapNotNull { key ->
+                    val section = defaults.getConfigurationSection(key) ?: return@mapNotNull null
+                    val row = linkedMapOf<String, Any>("spawns" to section.getMapList("spawns"))
+                    section.getString("name")?.let { row["name"] = it }
+                    section.getString("description")?.let { row["description"] = it }
+                    if (section.contains("delay-after-seconds")) row["delay-after-seconds"] = section.getLong("delay-after-seconds")
+                    key to row
+                }
             }
-            config.set("arena.waves", if (migrated.isEmpty()) bundled.get("arena.waves") else migrated)
+
+            config.set("arena.waves", null)
+            val waveSection = config.createSection("arena.waves")
+            waveRows.forEach { (key, row) ->
+                val section = waveSection.createSection(key)
+                section.set("name", row["name"]?.toString() ?: key)
+                row["description"]?.let { section.set("description", it.toString()) }
+                row["delay-after-seconds"]?.let { section.set("delay-after-seconds", it) }
+                section.set("spawns", row["spawns"] as? List<*> ?: emptyList<Any>())
+            }
         }
         if (!config.contains("arena.max-mobs-per-wave")) config.set("arena.max-mobs-per-wave", 100)
         config.set("config-version", 2)
@@ -171,30 +202,44 @@ class FemMobsPlugin : JavaPlugin(), Listener {
             loadMobProfile(key, section)
         }
         val waveSection = config.getConfigurationSection("arena.waves")
-            ?: throw IllegalArgumentException("Missing 'arena.waves' section in config.yml")
-        waves = waveSection.getKeys(false).map { waveKey ->
-            val section = waveSection.getConfigurationSection(waveKey)
-                ?: throw IllegalArgumentException("arena.waves.$waveKey must be a configuration section")
-            val spawns = section.getMapList("spawns").mapIndexed { index, row ->
-                val profileKey = row["profile"]?.toString()
+        val waveRows: List<Pair<String, Map<*, *>>> = when {
+            waveSection != null -> waveSection.getKeys(false).mapNotNull { key ->
+                val section = waveSection.getConfigurationSection(key) ?: return@mapNotNull null
+                key to section.getValues(false)
+            }
+            config.get("arena.waves") is Map<*, *> -> {
+                logger.warning("Reading arena.waves as a YAML map; upgrading the saved config structure.")
+                (config.get("arena.waves") as Map<*, *>).entries.mapNotNull { (key, value) ->
+                    val row = (value as? ConfigurationSection)?.getValues(false) ?: value as? Map<*, *>
+                    if (key == null || row == null) null else key.toString() to row
+                }
+            }
+            else -> throw IllegalArgumentException("Missing or invalid 'arena.waves' data in config.yml")
+        }
+        waves = waveRows.map { (waveKey, row) ->
+            val rawSpawns = row["spawns"] as? List<*> ?: emptyList<Any>()
+            val spawns = rawSpawns.mapIndexed { index, rawSpawn ->
+                val spawnRow = (rawSpawn as? Map<*, *>)
+                    ?: throw IllegalArgumentException("Invalid spawn at arena.waves.$waveKey.spawns[$index]")
+                val profileKey = spawnRow["profile"]?.toString()
                     ?: throw IllegalArgumentException("Missing profile at arena.waves.$waveKey.spawns[$index]")
                 val profile = profiles[profileKey]
                     ?: throw IllegalArgumentException("Unknown profile '$profileKey' at arena.waves.$waveKey.spawns[$index]")
-                val amount = if (row.containsKey("amount")) {
-                    row["amount"]?.toString()?.toIntOrNull()
+                val amount = if (spawnRow.containsKey("amount")) {
+                    spawnRow["amount"]?.toString()?.toIntOrNull()
                         ?: throw IllegalArgumentException("Invalid amount at arena.waves.$waveKey.spawns[$index]")
                 } else 1
                 require(amount > 0) { "amount must be at least 1 at arena.waves.$waveKey.spawns[$index]" }
-                val spread = row.optionalNumber("spread", 0.0, waveKey, index)
+                val spread = spawnRow.optionalNumber("spread", 0.0, waveKey, index)
                 require(spread >= 0.0) { "spread cannot be negative at arena.waves.$waveKey.spawns[$index]" }
                 SpawnSpec(
                     profile = profile,
-                    x = row.number("x", waveKey, index),
-                    y = row.number("y", waveKey, index),
-                    z = row.number("z", waveKey, index),
+                    x = spawnRow.number("x", waveKey, index),
+                    y = spawnRow.number("y", waveKey, index),
+                    z = spawnRow.number("z", waveKey, index),
                     amount = amount,
-                    yaw = row.optionalNumber("yaw", 0.0, waveKey, index).toFloat(),
-                    pitch = row.optionalNumber("pitch", 0.0, waveKey, index).toFloat(),
+                    yaw = spawnRow.optionalNumber("yaw", 0.0, waveKey, index).toFloat(),
+                    pitch = spawnRow.optionalNumber("pitch", 0.0, waveKey, index).toFloat(),
                     spread = spread,
                 )
             }
@@ -203,9 +248,9 @@ class FemMobsPlugin : JavaPlugin(), Listener {
                 "arena.waves.$waveKey contains $mobCount mobs, exceeding arena.max-mobs-per-wave ($maxMobsPerWave)"
             }
             WaveSpec(
-                name = section.getString("name", waveKey)!!,
-                description = section.getString("description", "")!!,
-                delayAfterSeconds = if (section.contains("delay-after-seconds")) section.getLong("delay-after-seconds").coerceAtLeast(0) else null,
+                name = row["name"]?.toString() ?: waveKey,
+                description = row["description"]?.toString() ?: "",
+                delayAfterSeconds = row["delay-after-seconds"]?.toString()?.toLongOrNull()?.coerceAtLeast(0),
                 spawns = spawns,
             )
         }
