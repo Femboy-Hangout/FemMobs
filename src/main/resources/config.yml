@@ -1,33 +1,247 @@
+# Every profile under `mobs` can be reused in any number of waves.
+# After editing this file, run /arenamobs reload.
+mobs:
+  grunt:
+    # Bukkit EntityType, for example ZOMBIE, SKELETON, or WITHER_SKELETON.
+    entity-type: ZOMBIE
+    name: "Forsaken Grunt"
+    # Use a named Adventure color (gold, dark_red, gray, etc.) or a hex color such as '#ff8800'.
+    name-color: dark_gray
+    name-visible: true
+    persistent: true
+    # These exact scoreboard tags are read by FemItems for custom drops.
+    scoreboard-tags:
+      - forsaken.grunt
+    # Any attributes supported by this entity can be listed here. Keys are Attribute names
+    # with hyphens or underscores, e.g. max-health, attack-damage, movement-speed,
+    # armor, armor-toughness, follow-range, knockback-resistance, attack-knockback.
+    attributes:
+      max-health: 40.0
+      attack-damage: 5.5
+      movement-speed: 0.25
+    # Current health on spawn. Omit this to start at the configured max-health.
+    health: 40.0
+    # Equipment slots can be omitted, set material to AIR, and customized independently.
+    # Enchantment keys are Bukkit enchantment names; levels may exceed normal limits.
+    # drop-chance is 0.0 to 1.0 and controls vanilla equipment drops only.
+    equipment:
+      main-hand:
+        material: IRON_SWORD
+        amount: 1
+        enchantments:
+          sharpness: 2
+        drop-chance: 0.0
+      off-hand:
+        material: AIR
+        drop-chance: 0.0
+      helmet:
+        material: IRON_HELMET
+        enchantments: { protection: 2 }
+        drop-chance: 0.0
+      chestplate:
+        material: IRON_CHESTPLATE
+        enchantments: { protection: 2 }
+        drop-chance: 0.0
+      leggings:
+        material: IRON_LEGGINGS
+        enchantments: { protection: 2 }
+        drop-chance: 0.0
+      boots:
+        material: IRON_BOOTS
+        enchantments: { protection: 2 }
+        drop-chance: 0.0
+    effects: []
+
+  archer:
+    entity-type: SKELETON
+    name: "Forsaken Archer"
+    name-color: green
+    name-visible: true
+    persistent: true
+    scoreboard-tags: [forsaken.archer]
+    attributes:
+      max-health: 30.0
+      movement-speed: 0.24
+    health: 30.0
+    equipment:
+      main-hand:
+        material: BOW
+        enchantments: { power: 2, punch: 1 }
+        drop-chance: 0.0
+      helmet:
+        material: CHAINMAIL_HELMET
+        enchantments: { protection: 2 }
+        drop-chance: 0.0
+      chestplate:
+        material: CHAINMAIL_CHESTPLATE
+        enchantments: { protection: 2 }
+        drop-chance: 0.0
+      leggings:
+        material: CHAINMAIL_LEGGINGS
+        enchantments: { protection: 2 }
+        drop-chance: 0.0
+      boots:
+        material: CHAINMAIL_BOOTS
+        enchantments: { protection: 2 }
+        drop-chance: 0.0
+    effects: []
+
+  ravager:
+    entity-type: VINDICATOR
+    name: "Forsaken Ravager"
+    name-color: dark_red
+    name-visible: true
+    persistent: true
+    scoreboard-tags: [forsaken.ravager]
+    attributes:
+      max-health: 65.0
+      attack-damage: 10.0
+      movement-speed: 0.26
+    health: 65.0
+    equipment:
+      main-hand:
+        material: DIAMOND_AXE
+        enchantments: { sharpness: 2 }
+        drop-chance: 0.0
+      helmet:
+        material: IRON_HELMET
+        enchantments: { protection: 2 }
+        drop-chance: 0.0
+      chestplate:
+        material: IRON_CHESTPLATE
+        enchantments: { protection: 2 }
+        drop-chance: 0.0
+      leggings:
+        material: IRON_LEGGINGS
+        enchantments: { protection: 2 }
+        drop-chance: 0.0
+      boots:
+        material: IRON_BOOTS
+        enchantments: { protection: 2 }
+        drop-chance: 0.0
+    effects: []
+
+  dreadbound:
+    entity-type: HUSK
+    name: "The Dreadbound"
+    name-color: dark_purple
+    name-visible: true
+    persistent: true
+    scoreboard-tags: [forsaken.dreadbound]
+    attributes:
+      max-health: 110.0
+      attack-damage: 8.0
+      movement-speed: 0.27
+    health: 110.0
+    equipment:
+      main-hand:
+        material: DIAMOND_SWORD
+        enchantments: { sharpness: 3 }
+        drop-chance: 0.0
+      helmet:
+        material: DIAMOND_HELMET
+        enchantments: { protection: 2 }
+        drop-chance: 0.0
+      chestplate:
+        material: DIAMOND_CHESTPLATE
+        enchantments: { protection: 2 }
+        drop-chance: 0.0
+      leggings:
+        material: DIAMOND_LEGGINGS
+        enchantments: { protection: 2 }
+        drop-chance: 0.0
+      boots:
+        material: DIAMOND_BOOTS
+        enchantments: { protection: 2 }
+        drop-chance: 0.0
+    effects:
+      - type: STRENGTH
+        amplifier: 0
+        duration-seconds: -1 # -1 means infinite.
+        ambient: false
+        particles: false
+        icon: false
+
+  champion:
+    entity-type: WITHER_SKELETON
+    name: "The Forsaken Champion"
+    name-color: gold
+    name-visible: true
+    persistent: true
+    scoreboard-tags: [forsaken.champion]
+    attributes:
+      max-health: 250.0
+      attack-damage: 12.0
+      movement-speed: 0.28
+      knockback-resistance: 0.5
+    health: 250.0
+    equipment:
+      main-hand:
+        material: DIAMOND_SWORD
+        drop-chance: 0.0
+      helmet:
+        material: DIAMOND_HELMET
+        drop-chance: 0.0
+      chestplate:
+        material: DIAMOND_CHESTPLATE
+        drop-chance: 0.0
+      leggings:
+        material: DIAMOND_LEGGINGS
+        drop-chance: 0.0
+      boots:
+        material: DIAMOND_BOOTS
+        drop-chance: 0.0
+    effects:
+      - type: RESISTANCE
+        amplifier: 0
+        duration-seconds: -1
+        ambient: false
+        particles: false
+        icon: false
+
 arena:
+  # Exact Bukkit world name where all configured coordinates are located.
   world: world
-  center: { x: 109, y: 75, z: -2788 }
+  # Automatic /arenamobs start waits this many seconds after a wave is cleared.
   wave-delay-seconds: 5
+  # Each wave contains a name and a list of profile + world coordinates.
+  # Duplicate a spawn entry to spawn multiple copies of the same profile.
   waves:
-    -
-      - { mob: GRUNT, x: 106, y: 75, z: -2788 }
-      - { mob: GRUNT, x: 112, y: 75, z: -2788 }
-      - { mob: ARCHER, x: 109, y: 75, z: -2792 }
-    -
-      - { mob: GRUNT, x: 105, y: 75, z: -2788 }
-      - { mob: GRUNT, x: 113, y: 75, z: -2788 }
-      - { mob: ARCHER, x: 106, y: 75, z: -2791 }
-      - { mob: ARCHER, x: 112, y: 75, z: -2785 }
-      - { mob: RAVAGER, x: 109, y: 75, z: -2788 }
-    -
-      - { mob: DREADBOUND, x: 106, y: 75, z: -2791 }
-      - { mob: DREADBOUND, x: 112, y: 75, z: -2785 }
-      - { mob: RAVAGER, x: 106, y: 75, z: -2785 }
-      - { mob: RAVAGER, x: 112, y: 75, z: -2791 }
-      - { mob: ARCHER, x: 109, y: 75, z: -2792 }
-      - { mob: ARCHER, x: 109, y: 75, z: -2784 }
-    -
-      - { mob: DREADBOUND, x: 105, y: 75, z: -2788 }
-      - { mob: DREADBOUND, x: 113, y: 75, z: -2788 }
-      - { mob: DREADBOUND, x: 109, y: 75, z: -2792 }
-      - { mob: RAVAGER, x: 106, y: 75, z: -2791 }
-      - { mob: RAVAGER, x: 112, y: 75, z: -2785 }
-      - { mob: ARCHER, x: 109, y: 75, z: -2784 }
-      - { mob: ARCHER, x: 106, y: 75, z: -2785 }
-      - { mob: ARCHER, x: 112, y: 75, z: -2791 }
-    -
-      - { mob: CHAMPION, x: 109, y: 75, z: -2788 }
+    wave1:
+      name: "Opening Patrol"
+      spawns:
+        - { profile: grunt, x: 106.5, y: 75, z: -2787.5 }
+        - { profile: grunt, x: 112.5, y: 75, z: -2787.5 }
+        - { profile: archer, x: 109.5, y: 75, z: -2791.5 }
+    wave2:
+      name: "Crossfire"
+      spawns:
+        - { profile: grunt, x: 105.5, y: 75, z: -2787.5 }
+        - { profile: grunt, x: 113.5, y: 75, z: -2787.5 }
+        - { profile: archer, x: 106.5, y: 75, z: -2790.5 }
+        - { profile: archer, x: 112.5, y: 75, z: -2784.5 }
+        - { profile: ravager, x: 109.5, y: 75, z: -2787.5 }
+    wave3:
+      name: "Heavy Fighters"
+      spawns:
+        - { profile: dreadbound, x: 106.5, y: 75, z: -2790.5 }
+        - { profile: dreadbound, x: 112.5, y: 75, z: -2784.5 }
+        - { profile: ravager, x: 106.5, y: 75, z: -2784.5 }
+        - { profile: ravager, x: 112.5, y: 75, z: -2790.5 }
+        - { profile: archer, x: 109.5, y: 75, z: -2791.5 }
+        - { profile: archer, x: 109.5, y: 75, z: -2783.5 }
+    wave4:
+      name: "Final Assault"
+      spawns:
+        - { profile: dreadbound, x: 105.5, y: 75, z: -2787.5 }
+        - { profile: dreadbound, x: 113.5, y: 75, z: -2787.5 }
+        - { profile: dreadbound, x: 109.5, y: 75, z: -2791.5 }
+        - { profile: ravager, x: 106.5, y: 75, z: -2790.5 }
+        - { profile: ravager, x: 112.5, y: 75, z: -2784.5 }
+        - { profile: archer, x: 109.5, y: 75, z: -2783.5 }
+        - { profile: archer, x: 106.5, y: 75, z: -2784.5 }
+        - { profile: archer, x: 112.5, y: 75, z: -2790.5 }
+    wave5:
+      name: "Champion"
+      spawns:
+        - { profile: champion, x: 109.5, y: 75, z: -2787.5 }
