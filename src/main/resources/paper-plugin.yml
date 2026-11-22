@@ -1,0 +1,6 @@
+name: FemMobs
+version: '${version}'
+main: dev.femmobs.FemMobsPlugin
+api-version: '26.3'
+folia-supported: true
+description: Arena wave spawning for the Forsaken mobs.
