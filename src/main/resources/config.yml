@@ -1,5 +1,6 @@
 # Every profile under `mobs` can be reused in any number of waves.
-# After editing this file, run /arenamobs reload.
+# After editing this file, run /femmobs reload.
+config-version: 2
 mobs:
   grunt:
     # Bukkit EntityType, for example ZOMBIE, SKELETON, or WITHER_SKELETON.
@@ -202,46 +203,61 @@ mobs:
 arena:
   # Exact Bukkit world name where all configured coordinates are located.
   world: world
-  # Automatic /arenamobs start waits this many seconds after a wave is cleared.
+  # Default campaign pause after a wave is cleared. A wave can override it below.
   wave-delay-seconds: 5
-  # Each wave contains a name and a list of profile + world coordinates.
-  # Duplicate a spawn entry to spawn multiple copies of the same profile.
+  # Safety limit: config reload fails if any wave would spawn more than this many mobs.
+  # Raise it carefully for large waves; each mob is scheduled independently for Folia safety.
+  # This setting must remain between 1 and 500 to bound memory and scheduler work.
+  max-mobs-per-wave: 100
+  # Each wave contains display text, an optional next-wave delay, and spawn groups.
+  # Coordinates are world coordinates. amount spawns copies at that point. spread distributes
+  # copies randomly in a circle around the point. yaw/pitch set the mob's initial facing.
   waves:
     wave1:
       name: "Opening Patrol"
+      description: "Two grunts and an archer." # Optional extra line in the wave menu.
+      delay-after-seconds: 5 # Optional; omitted uses arena.wave-delay-seconds.
       spawns:
-        - { profile: grunt, x: 106.5, y: 75, z: -2787.5 }
-        - { profile: grunt, x: 112.5, y: 75, z: -2787.5 }
-        - { profile: archer, x: 109.5, y: 75, z: -2791.5 }
+        - { profile: grunt, x: 106.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: grunt, x: 112.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: archer, x: 109.5, y: 75, z: -2791.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
     wave2:
       name: "Crossfire"
+      description: "Grunts hold the arena while archers cover the ravager."
+      delay-after-seconds: 5
       spawns:
-        - { profile: grunt, x: 105.5, y: 75, z: -2787.5 }
-        - { profile: grunt, x: 113.5, y: 75, z: -2787.5 }
-        - { profile: archer, x: 106.5, y: 75, z: -2790.5 }
-        - { profile: archer, x: 112.5, y: 75, z: -2784.5 }
-        - { profile: ravager, x: 109.5, y: 75, z: -2787.5 }
+        - { profile: grunt, x: 105.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: grunt, x: 113.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: archer, x: 106.5, y: 75, z: -2790.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: archer, x: 112.5, y: 75, z: -2784.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: ravager, x: 109.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
     wave3:
       name: "Heavy Fighters"
+      description: "Dreadbound, ravagers, and two archers."
+      delay-after-seconds: 5
       spawns:
-        - { profile: dreadbound, x: 106.5, y: 75, z: -2790.5 }
-        - { profile: dreadbound, x: 112.5, y: 75, z: -2784.5 }
-        - { profile: ravager, x: 106.5, y: 75, z: -2784.5 }
-        - { profile: ravager, x: 112.5, y: 75, z: -2790.5 }
-        - { profile: archer, x: 109.5, y: 75, z: -2791.5 }
-        - { profile: archer, x: 109.5, y: 75, z: -2783.5 }
+        - { profile: dreadbound, x: 106.5, y: 75, z: -2790.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: dreadbound, x: 112.5, y: 75, z: -2784.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: ravager, x: 106.5, y: 75, z: -2784.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: ravager, x: 112.5, y: 75, z: -2790.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: archer, x: 109.5, y: 75, z: -2791.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: archer, x: 109.5, y: 75, z: -2783.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
     wave4:
       name: "Final Assault"
+      description: "The main force attacks from every side."
+      delay-after-seconds: 5
       spawns:
-        - { profile: dreadbound, x: 105.5, y: 75, z: -2787.5 }
-        - { profile: dreadbound, x: 113.5, y: 75, z: -2787.5 }
-        - { profile: dreadbound, x: 109.5, y: 75, z: -2791.5 }
-        - { profile: ravager, x: 106.5, y: 75, z: -2790.5 }
-        - { profile: ravager, x: 112.5, y: 75, z: -2784.5 }
-        - { profile: archer, x: 109.5, y: 75, z: -2783.5 }
-        - { profile: archer, x: 106.5, y: 75, z: -2784.5 }
-        - { profile: archer, x: 112.5, y: 75, z: -2790.5 }
+        - { profile: dreadbound, x: 105.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: dreadbound, x: 113.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: dreadbound, x: 109.5, y: 75, z: -2791.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: ravager, x: 106.5, y: 75, z: -2790.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: ravager, x: 112.5, y: 75, z: -2784.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: archer, x: 109.5, y: 75, z: -2783.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: archer, x: 106.5, y: 75, z: -2784.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+        - { profile: archer, x: 112.5, y: 75, z: -2790.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
     wave5:
       name: "Champion"
+      description: "The champion enters alone."
+      delay-after-seconds: 5
       spawns:
-        - { profile: champion, x: 109.5, y: 75, z: -2787.5 }
+        - { profile: champion, x: 109.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }

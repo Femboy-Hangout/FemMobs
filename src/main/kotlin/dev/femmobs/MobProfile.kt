@@ -16,6 +16,7 @@ import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.ItemStack
 import org.bukkit.potion.PotionEffect
 import org.bukkit.potion.PotionEffectType
+import java.util.logging.Logger
 
 data class EquipmentSpec(
     val slot: EquipmentSlot,
@@ -53,7 +54,7 @@ data class MobProfile(
     val equipment: List<EquipmentSpec>,
     val effects: List<EffectSpec>,
 ) {
-    fun applyTo(entity: LivingEntity) {
+    fun applyTo(entity: LivingEntity, logger: Logger) {
         entity.customName(Component.text(name, nameColor))
         entity.isCustomNameVisible = nameVisible
         entity.isPersistent = persistent
@@ -70,7 +71,7 @@ data class MobProfile(
         attributes.forEach { (attribute, value) ->
             val instance = entity.getAttribute(attribute)
             if (instance == null) {
-                FemMobsPlugin.instance.logger.warning("Mob '$key' has no ${attribute.key} attribute on ${entity.type}.")
+                logger.warning("Mob '$key' has no ${attribute.key} attribute on ${entity.type}.")
             } else {
                 instance.baseValue = value
             }
@@ -92,8 +93,22 @@ data class MobProfile(
     }
 }
 
-data class SpawnSpec(val profile: MobProfile, val x: Double, val y: Double, val z: Double)
-data class WaveSpec(val name: String, val spawns: List<SpawnSpec>)
+data class SpawnSpec(
+    val profile: MobProfile,
+    val x: Double,
+    val y: Double,
+    val z: Double,
+    val amount: Int,
+    val yaw: Float,
+    val pitch: Float,
+    val spread: Double,
+)
+data class WaveSpec(
+    val name: String,
+    val description: String,
+    val delayAfterSeconds: Long?,
+    val spawns: List<SpawnSpec>,
+)
 
 fun loadMobProfile(key: String, section: ConfigurationSection): MobProfile {
     val entityType = enumValue<EntityType>(section.getString("entity-type"), "mobs.$key.entity-type")

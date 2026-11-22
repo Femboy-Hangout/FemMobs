@@ -10,6 +10,7 @@ import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.World
 import org.bukkit.command.CommandSender
+import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
@@ -22,9 +23,11 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.permissions.Permission
 import org.bukkit.permissions.PermissionDefault
 import org.bukkit.plugin.java.JavaPlugin
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.ThreadLocalRandom
 
 class FemMobsPlugin : JavaPlugin(), Listener {
     private class WaveMenuHolder(val page: Int) : InventoryHolder {
@@ -40,21 +43,29 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     @Volatile private var wave = 0
     @Volatile private var pendingSpawns = AtomicInteger(0)
     @Volatile private var runGeneration = 0L
+    @Volatile private var nextWaveTask: ScheduledTask? = null
     private var waves: List<WaveSpec> = emptyList()
     private var worldName = "world"
     private var delaySeconds = 5L
+    private var maxMobsPerWave = 100
+    private var ownsAdminPermission = false
 
     override fun onEnable() {
-        instance = this
         saveDefaultConfig()
+        migrateLegacyConfigIfNeeded()
         loadSettings()
         server.pluginManager.registerEvents(this, this)
-        if (server.pluginManager.getPermission("femmobs.admin") == null) {
-            server.pluginManager.addPermission(Permission("femmobs.admin", PermissionDefault.OP))
+        val adminPermission = server.pluginManager.getPermission("femmobs.admin")
+        if (adminPermission == null) {
+            server.pluginManager.addPermission(Permission("femmobs.admin", PermissionDefault.FALSE))
+            ownsAdminPermission = true
+        } else {
+            adminPermission.setDefault(PermissionDefault.FALSE)
         }
         lifecycleManager.registerEventHandler(LifecycleEvents.COMMANDS) { event ->
             event.registrar().register(
-                Commands.literal("arenamobs")
+                Commands.literal("femmobs")
+                    .requires { source -> source.sender.hasPermission("femmobs.admin") }
                     .then(Commands.literal("start").executes { context -> runCommand(context.source.sender, "start") })
                     .then(Commands.literal("stop").executes { context -> runCommand(context.source.sender, "stop") })
                     .then(Commands.literal("status").executes { context -> runCommand(context.source.sender, "status") })
@@ -64,6 +75,17 @@ class FemMobsPlugin : JavaPlugin(), Listener {
                     .executes { context -> runCommand(context.source.sender, "help") }
                     .build(),
             )
+        }
+    }
+
+    override fun onDisable() {
+        running = false
+        runGeneration++
+        cancelNextWaveTask()
+        alive.clear()
+        pendingSpawns.set(0)
+        if (ownsAdminPermission && server.pluginManager.getPermission("femmobs.admin") != null) {
+            server.pluginManager.removePermission("femmobs.admin")
         }
     }
 
@@ -82,6 +104,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
                 Bukkit.getGlobalRegionScheduler().execute(this) {
                     if (running) stopNow(sender)
                     reloadConfig()
+                    migrateLegacyConfigIfNeeded()
                     loadSettings()
                     tell(sender, "FemMobs config reloaded. Loaded ${profilesCount()} mob profiles and ${waves.size} waves.")
                 }
@@ -97,9 +120,49 @@ class FemMobsPlugin : JavaPlugin(), Listener {
 
     private fun profilesCount(): Int = config.getConfigurationSection("mobs")?.getKeys(false)?.size ?: 0
 
+    private fun migrateLegacyConfigIfNeeded() {
+        val hasProfiles = config.getConfigurationSection("mobs") != null
+        val hasWaveSections = config.getConfigurationSection("arena.waves") != null
+        if (hasProfiles && hasWaveSections) return
+
+        val bundled = YamlConfiguration()
+        getResource("config.yml")!!.bufferedReader().use(bundled::load)
+        if (!hasProfiles) config.set("mobs", bundled.get("mobs"))
+
+        if (!hasWaveSections) {
+            val legacyWaves = config.getList("arena.waves").orEmpty()
+            val migrated = linkedMapOf<String, Any>()
+            legacyWaves.forEachIndexed { waveIndex, rawWave ->
+                val entries = rawWave as? List<*> ?: return@forEachIndexed
+                val spawns = entries.mapNotNull { rawEntry ->
+                    val row = rawEntry as? Map<*, *> ?: return@mapNotNull null
+                    val profile = row["mob"]?.toString()?.lowercase() ?: return@mapNotNull null
+                    linkedMapOf(
+                        "profile" to profile,
+                        "x" to (row["x"] ?: return@mapNotNull null),
+                        "y" to (row["y"] ?: return@mapNotNull null),
+                        "z" to (row["z"] ?: return@mapNotNull null),
+                        "amount" to 1,
+                        "yaw" to 0,
+                        "pitch" to 0,
+                        "spread" to 0,
+                    )
+                }
+                migrated["wave${waveIndex + 1}"] = mapOf("name" to "Wave ${waveIndex + 1}", "spawns" to spawns)
+            }
+            config.set("arena.waves", if (migrated.isEmpty()) bundled.get("arena.waves") else migrated)
+        }
+        if (!config.contains("arena.max-mobs-per-wave")) config.set("arena.max-mobs-per-wave", 100)
+        config.set("config-version", 2)
+        config.save(dataFolder.toPath().resolve("config.yml").toFile())
+        logger.info("Updated FemMobs config to version 2; existing wave coordinates were preserved where possible.")
+    }
+
     private fun loadSettings() {
         worldName = config.getString("arena.world", "world")!!
         delaySeconds = config.getLong("arena.wave-delay-seconds", 5).coerceAtLeast(0)
+        maxMobsPerWave = config.getInt("arena.max-mobs-per-wave", 100)
+        require(maxMobsPerWave in 1..500) { "arena.max-mobs-per-wave must be between 1 and 500" }
         val mobSection = config.getConfigurationSection("mobs")
             ?: throw IllegalArgumentException("Missing 'mobs' section in config.yml")
         val profiles = mobSection.getKeys(false).associateWith { key ->
@@ -117,15 +180,44 @@ class FemMobsPlugin : JavaPlugin(), Listener {
                     ?: throw IllegalArgumentException("Missing profile at arena.waves.$waveKey.spawns[$index]")
                 val profile = profiles[profileKey]
                     ?: throw IllegalArgumentException("Unknown profile '$profileKey' at arena.waves.$waveKey.spawns[$index]")
-                SpawnSpec(profile, row.number("x", waveKey, index), row.number("y", waveKey, index), row.number("z", waveKey, index))
+                val amount = if (row.containsKey("amount")) {
+                    row["amount"]?.toString()?.toIntOrNull()
+                        ?: throw IllegalArgumentException("Invalid amount at arena.waves.$waveKey.spawns[$index]")
+                } else 1
+                require(amount > 0) { "amount must be at least 1 at arena.waves.$waveKey.spawns[$index]" }
+                val spread = row.optionalNumber("spread", 0.0, waveKey, index)
+                require(spread >= 0.0) { "spread cannot be negative at arena.waves.$waveKey.spawns[$index]" }
+                SpawnSpec(
+                    profile = profile,
+                    x = row.number("x", waveKey, index),
+                    y = row.number("y", waveKey, index),
+                    z = row.number("z", waveKey, index),
+                    amount = amount,
+                    yaw = row.optionalNumber("yaw", 0.0, waveKey, index).toFloat(),
+                    pitch = row.optionalNumber("pitch", 0.0, waveKey, index).toFloat(),
+                    spread = spread,
+                )
             }
-            WaveSpec(section.getString("name", waveKey)!!, spawns)
+            val mobCount = spawns.sumOf { it.amount.toLong() }
+            require(mobCount <= maxMobsPerWave) {
+                "arena.waves.$waveKey contains $mobCount mobs, exceeding arena.max-mobs-per-wave ($maxMobsPerWave)"
+            }
+            WaveSpec(
+                name = section.getString("name", waveKey)!!,
+                description = section.getString("description", "")!!,
+                delayAfterSeconds = if (section.contains("delay-after-seconds")) section.getLong("delay-after-seconds").coerceAtLeast(0) else null,
+                spawns = spawns,
+            )
         }
     }
 
     private fun Map<*, *>.number(key: String, waveKey: String, index: Int): Double =
         this[key]?.toString()?.toDoubleOrNull()
             ?: throw IllegalArgumentException("Invalid/missing coordinate '$key' at arena.waves.$waveKey.spawns[$index]")
+
+    private fun Map<*, *>.optionalNumber(key: String, default: Double, waveKey: String, index: Int): Double =
+        this[key]?.toString()?.toDoubleOrNull()
+            ?: if (containsKey(key)) throw IllegalArgumentException("Invalid '$key' at arena.waves.$waveKey.spawns[$index]") else default
 
     private fun start(sender: CommandSender) {
         Bukkit.getGlobalRegionScheduler().execute(this) {
@@ -154,6 +246,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     }
 
     private fun beginRun(manual: Boolean) {
+        cancelNextWaveTask()
         alive.clear()
         wave = 0
         running = true
@@ -164,23 +257,30 @@ class FemMobsPlugin : JavaPlugin(), Listener {
 
     private fun spawnBatch(world: World, spawns: List<SpawnSpec>, onSpawned: () -> Unit) {
         val generation = runGeneration
-        val remaining = AtomicInteger(spawns.size)
+        val remaining = AtomicInteger(spawns.sumOf { it.amount })
         pendingSpawns = remaining
-        if (spawns.isEmpty()) { onSpawned(); return }
-        spawns.forEach { spawn ->
-            val location = Location(world, spawn.x, spawn.y, spawn.z)
+        if (remaining.get() == 0) { onSpawned(); return }
+        spawns.forEach { spawn -> repeat(spawn.amount) {
+            val location = spawnLocation(world, spawn)
             Bukkit.getRegionScheduler().execute(this, location) {
                 if (!running || generation != runGeneration) {
                     if (remaining.decrementAndGet() == 0 && generation == runGeneration && running) onSpawned()
                     return@execute
                 }
                 val entity = world.spawnEntity(location, spawn.profile.entityType) as LivingEntity
-                spawn.profile.applyTo(entity)
+                entity.setRotation(spawn.yaw, spawn.pitch)
+                spawn.profile.applyTo(entity, logger)
                 entity.addScoreboardTag(runTag)
                 alive.add(entity.uniqueId)
                 if (remaining.decrementAndGet() == 0) onSpawned()
             }
-        }
+        } }
+    }
+
+    private fun spawnLocation(world: World, spawn: SpawnSpec): Location {
+        val angle = ThreadLocalRandom.current().nextDouble(0.0, Math.PI * 2.0)
+        val radius = kotlin.math.sqrt(ThreadLocalRandom.current().nextDouble()) * spawn.spread
+        return Location(world, spawn.x + kotlin.math.cos(angle) * radius, spawn.y, spawn.z + kotlin.math.sin(angle) * radius)
     }
 
     private fun spawnSelectedWave(player: Player, waveIndex: Int) {
@@ -191,7 +291,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
             if (world == null) { tell(player, "Arena world '$worldName' is not loaded."); return@execute }
             val selected = waves.getOrNull(waveIndex) ?: return@execute
             beginRun(manual = true)
-            tell(player, "Spawning Wave ${waveIndex + 1}: ${selected.name} (${selected.spawns.size} mobs).")
+            tell(player, "Spawning Wave ${waveIndex + 1}: ${selected.name} (${selected.spawns.sumOf { it.amount }} mobs).")
             spawnBatch(world, selected.spawns) {
                 if (alive.isEmpty()) running = false
             }
@@ -212,9 +312,17 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         if (!running || alive.isNotEmpty()) return
         if (manualWave) { running = false; return }
         val generation = runGeneration
-        Bukkit.getGlobalRegionScheduler().runDelayed(this, {
+        val delay = waves.getOrNull(wave - 1)?.delayAfterSeconds ?: delaySeconds
+        cancelNextWaveTask()
+        nextWaveTask = Bukkit.getGlobalRegionScheduler().runDelayed(this, {
+            if (generation == runGeneration) nextWaveTask = null
             if (running && !manualWave && generation == runGeneration && alive.isEmpty()) spawnNextCampaignWave(world)
-        }, delaySeconds * 20)
+        }, delay * 20)
+    }
+
+    private fun cancelNextWaveTask() {
+        nextWaveTask?.cancel()
+        nextWaveTask = null
     }
 
     private fun stop(sender: CommandSender) {
@@ -224,6 +332,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     private fun stopNow(sender: CommandSender) {
         running = false
         runGeneration++
+        cancelNextWaveTask()
         alive.toList().forEach { id ->
             Bukkit.getEntity(id)?.let { entity -> entity.scheduler.run(this, { entity.remove() }, null) }
         }
@@ -249,14 +358,18 @@ class FemMobsPlugin : JavaPlugin(), Listener {
             val meta = item.itemMeta
             meta.displayName(Component.text("Wave ${waveIndex + 1}: ${selected.name}", NamedTextColor.GOLD))
             val lore = mutableListOf(
-                Component.text("${selected.spawns.size} mob(s)", NamedTextColor.YELLOW),
+                Component.text("${selected.spawns.sumOf { it.amount }} mob(s)", NamedTextColor.YELLOW),
                 Component.text("Click to spawn this wave", NamedTextColor.GREEN),
                 Component.empty(),
             )
+            if (selected.description.isNotBlank()) lore += Component.text(selected.description, NamedTextColor.GRAY)
             selected.spawns.forEach { spawn ->
-                lore += Component.text("${spawn.profile.name} (${spawn.profile.key})", NamedTextColor.WHITE)
-                lore += Component.text("  ${spawn.x}, ${spawn.y}, ${spawn.z}", NamedTextColor.GRAY)
+                lore += Component.text("${spawn.profile.name} x${spawn.amount} (${spawn.profile.key})", NamedTextColor.WHITE)
+                lore += Component.text("  ${spawn.x}, ${spawn.y}, ${spawn.z}; yaw ${spawn.yaw}, pitch ${spawn.pitch}", NamedTextColor.GRAY)
+                if (spawn.spread > 0.0) lore += Component.text("  spread radius ${spawn.spread}", NamedTextColor.GRAY)
             }
+            val nextDelay = selected.delayAfterSeconds ?: delaySeconds
+            lore += Component.text("Next campaign delay: ${nextDelay}s", NamedTextColor.DARK_GRAY)
             meta.lore(lore)
             item.itemMeta = meta
             inventory.setItem(slot, item)
@@ -290,12 +403,12 @@ class FemMobsPlugin : JavaPlugin(), Listener {
 
     private fun sendHelp(sender: CommandSender) {
         sender.sendMessage("FemMobs commands:")
-        sender.sendMessage("/arenamobs gui — open the wave list; click a wave to spawn it once.")
-        sender.sendMessage("/arenamobs start — start the automatic campaign, advancing after each wave is cleared.")
-        sender.sendMessage("/arenamobs stop — stop and remove mobs spawned by the current run.")
-        sender.sendMessage("/arenamobs status — show the current run and remaining mob count.")
-        sender.sendMessage("/arenamobs reload — reload config.yml (stops the current run first).")
-        sender.sendMessage("Edit mob profiles and wave rosters in plugins/FemMobs/config.yml; then run /arenamobs reload.")
+        sender.sendMessage("/femmobs gui - open the wave list; click a wave to spawn it once.")
+        sender.sendMessage("/femmobs start - start the automatic campaign, advancing after each wave is cleared.")
+        sender.sendMessage("/femmobs stop - stop and remove mobs spawned by the current run.")
+        sender.sendMessage("/femmobs status - show the current run and remaining mob count.")
+        sender.sendMessage("/femmobs reload - reload config.yml (stops the current run first).")
+        sender.sendMessage("Edit mob profiles and wave rosters in plugins/FemMobs/config.yml; then run /femmobs reload.")
         sender.sendMessage("Mob equipment drop chances are in each equipment slot; loot is handled by your other plugin.")
     }
 
@@ -312,8 +425,4 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         else sender.sendMessage(message)
     }
 
-    companion object {
-        lateinit var instance: FemMobsPlugin
-            private set
-    }
 }
