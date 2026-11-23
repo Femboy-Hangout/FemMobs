@@ -1,5 +1,7 @@
 package dev.femmobs
 
+import io.papermc.paper.registry.RegistryAccess
+import io.papermc.paper.registry.RegistryKey
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import net.kyori.adventure.text.format.TextColor
@@ -39,6 +41,7 @@ data class MobProfile(
     val key: String,
     val entityType: EntityType,
     val name: String,
+    val icon: Material,
     val nameColor: TextColor,
     val nameVisible: Boolean,
     val persistent: Boolean,
@@ -65,6 +68,8 @@ data class MobProfile(
         (entity as? Mob)?.let {
             it.setAI(hasAi)
             it.setCanPickupItems(canPickupItems)
+            // isPersistent only controls saving on chunk unload; this stops natural despawning.
+            it.isPersistenceRequired = persistent
         }
         tags.forEach(entity::addScoreboardTag)
 
@@ -110,8 +115,21 @@ data class WaveSpec(
     val spawns: List<SpawnSpec>,
 )
 
+data class ArenaSpec(
+    val key: String,
+    val name: String,
+    val description: String,
+    val icon: Material,
+    val worldName: String,
+    val waveDelaySeconds: Long,
+    val waves: List<WaveSpec>,
+)
+
 fun loadMobProfile(key: String, section: ConfigurationSection): MobProfile {
     val entityType = enumValue<EntityType>(section.getString("entity-type"), "mobs.$key.entity-type")
+    require(entityType.isSpawnable && entityType.entityClass?.let { LivingEntity::class.java.isAssignableFrom(it) } == true) {
+        "mobs.$key.entity-type '$entityType' must be a spawnable living entity"
+    }
     val attrs = linkedMapOf<Attribute, Double>()
     section.getConfigurationSection("attributes")?.getKeys(false)?.forEach { attributeName ->
         val normalized = attributeName.replace('-', '_').uppercase()
@@ -137,7 +155,7 @@ fun loadMobProfile(key: String, section: ConfigurationSection): MobProfile {
         val enchants = linkedMapOf<Enchantment, Int>()
         section.getConfigurationSection("$path.enchantments")?.getKeys(false)?.forEach { enchantName ->
             val enchantmentKey = NamespacedKey.minecraft(enchantName.lowercase())
-            val enchantment = Registry.ENCHANTMENT.get(enchantmentKey)
+            val enchantment = RegistryAccess.registryAccess().getRegistry(RegistryKey.ENCHANTMENT).get(enchantmentKey)
                 ?: throw IllegalArgumentException("Unknown enchantment '$enchantName' in mobs.$key.$path")
             enchants[enchantment] = section.getInt("$path.enchantments.$enchantName")
         }
@@ -169,10 +187,16 @@ fun loadMobProfile(key: String, section: ConfigurationSection): MobProfile {
             ?: throw IllegalArgumentException("Unknown name color '$colorValue' in mobs.$key.name-color")
     }
 
+    val icon = section.getString("icon")?.let { iconName ->
+        Material.matchMaterial(iconName)?.takeIf { it.isItem && !it.isAir }
+            ?: throw IllegalArgumentException("Unknown or non-item icon '$iconName' in mobs.$key.icon")
+    } ?: Material.matchMaterial("${entityType.name}_SPAWN_EGG") ?: Material.SPAWNER
+
     return MobProfile(
         key = key,
         entityType = entityType,
         name = section.getString("name", key)!!,
+        icon = icon,
         nameColor = color,
         nameVisible = section.getBoolean("name-visible", true),
         persistent = section.getBoolean("persistent", true),

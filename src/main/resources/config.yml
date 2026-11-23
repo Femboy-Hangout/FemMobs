@@ -1,6 +1,16 @@
-# Every profile under `mobs` can be reused in any number of waves.
+# Every profile under `mobs` can be reused in any arena wave, and spawned on its own from
+# /femmobs gui -> Spawn mobs or /femmobs spawn <mob>.
 # After editing this file, run /femmobs reload.
-config-version: 2
+config-version: 3
+
+# Safety limit: reload fails if any wave would spawn more than this many mobs (1 to 500).
+# Each mob is scheduled independently for Folia safety, so raise it carefully.
+max-mobs-per-wave: 100
+
+spawn-menu:
+  # How many blocks in front of you mobs appear when spawned from the menu or /femmobs spawn (1 to 16).
+  distance: 3.0
+
 mobs:
   grunt:
     # Bukkit EntityType, for example ZOMBIE, SKELETON, or WITHER_SKELETON.
@@ -9,6 +19,9 @@ mobs:
     # Use a named Adventure color (gold, dark_red, gray, etc.) or a hex color such as '#ff8800'.
     name-color: dark_gray
     name-visible: true
+    # Optional item shown in the spawn menu. Defaults to the entity's spawn egg.
+    # icon: ZOMBIE_HEAD
+    # true: never despawns naturally and is saved with the chunk. Arena wave mobs never despawn either way.
     persistent: true
     # These exact scoreboard tags are read by FemItems for custom drops.
     scoreboard-tags:
@@ -200,64 +213,66 @@ mobs:
         particles: false
         icon: false
 
-arena:
-  # Exact Bukkit world name where all configured coordinates are located.
-  world: world
-  # Default campaign pause after a wave is cleared. A wave can override it below.
-  wave-delay-seconds: 5
-  # Safety limit: config reload fails if any wave would spawn more than this many mobs.
-  # Raise it carefully for large waves; each mob is scheduled independently for Folia safety.
-  # This setting must remain between 1 and 500 to bound memory and scheduler work.
-  max-mobs-per-wave: 100
-  # Each wave contains display text, an optional next-wave delay, and spawn groups.
-  # Coordinates are world coordinates. amount spawns copies at that point. spread distributes
-  # copies randomly in a circle around the point. yaw/pitch set the mob's initial facing.
-  waves:
-    wave1:
-      name: "Opening Patrol"
-      description: "Two grunts and an archer." # Optional extra line in the wave menu.
-      delay-after-seconds: 5 # Optional; omitted uses arena.wave-delay-seconds.
-      spawns:
-        - { profile: grunt, x: 106.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: grunt, x: 112.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: archer, x: 109.5, y: 75, z: -2791.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-    wave2:
-      name: "Crossfire"
-      description: "Grunts hold the arena while archers cover the ravager."
-      delay-after-seconds: 5
-      spawns:
-        - { profile: grunt, x: 105.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: grunt, x: 113.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: archer, x: 106.5, y: 75, z: -2790.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: archer, x: 112.5, y: 75, z: -2784.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: ravager, x: 109.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-    wave3:
-      name: "Heavy Fighters"
-      description: "Dreadbound, ravagers, and two archers."
-      delay-after-seconds: 5
-      spawns:
-        - { profile: dreadbound, x: 106.5, y: 75, z: -2790.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: dreadbound, x: 112.5, y: 75, z: -2784.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: ravager, x: 106.5, y: 75, z: -2784.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: ravager, x: 112.5, y: 75, z: -2790.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: archer, x: 109.5, y: 75, z: -2791.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: archer, x: 109.5, y: 75, z: -2783.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-    wave4:
-      name: "Final Assault"
-      description: "The main force attacks from every side."
-      delay-after-seconds: 5
-      spawns:
-        - { profile: dreadbound, x: 105.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: dreadbound, x: 113.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: dreadbound, x: 109.5, y: 75, z: -2791.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: ravager, x: 106.5, y: 75, z: -2790.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: ravager, x: 112.5, y: 75, z: -2784.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: archer, x: 109.5, y: 75, z: -2783.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: archer, x: 106.5, y: 75, z: -2784.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-        - { profile: archer, x: 112.5, y: 75, z: -2790.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
-    wave5:
-      name: "Champion"
-      description: "The champion enters alone."
-      delay-after-seconds: 5
-      spawns:
-        - { profile: champion, x: 109.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+# Each key under `arenas` is an arena (or any other spawn area). Arenas are listed in the menu,
+# can run at the same time, and each has its own waves. Start one with /femmobs start <arena>.
+arenas:
+  forsaken:
+    name: "Forsaken Arena"
+    description: "Five waves of the Forsaken." # Optional; shown in the arena list.
+    icon: NETHER_STAR # Optional item shown in the arena list.
+    # Exact Bukkit world name where this arena's coordinates are located.
+    world: world
+    # Default campaign pause after a wave is cleared. A wave can override it below.
+    wave-delay-seconds: 5
+    # Each wave contains display text, an optional next-wave delay, and spawn groups.
+    # Coordinates are world coordinates. amount spawns copies at that point. spread distributes
+    # copies randomly in a circle around the point. yaw/pitch set the mob's initial facing.
+    waves:
+      wave1:
+        name: "Opening Patrol"
+        description: "Two grunts and an archer." # Optional extra line in the wave menu.
+        delay-after-seconds: 5 # Optional; omitted uses the arena's wave-delay-seconds.
+        spawns:
+          - { profile: grunt, x: 106.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: grunt, x: 112.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: archer, x: 109.5, y: 75, z: -2791.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+      wave2:
+        name: "Crossfire"
+        description: "Grunts hold the arena while archers cover the ravager."
+        delay-after-seconds: 5
+        spawns:
+          - { profile: grunt, x: 105.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: grunt, x: 113.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: archer, x: 106.5, y: 75, z: -2790.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: archer, x: 112.5, y: 75, z: -2784.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: ravager, x: 109.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+      wave3:
+        name: "Heavy Fighters"
+        description: "Dreadbound, ravagers, and two archers."
+        delay-after-seconds: 5
+        spawns:
+          - { profile: dreadbound, x: 106.5, y: 75, z: -2790.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: dreadbound, x: 112.5, y: 75, z: -2784.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: ravager, x: 106.5, y: 75, z: -2784.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: ravager, x: 112.5, y: 75, z: -2790.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: archer, x: 109.5, y: 75, z: -2791.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: archer, x: 109.5, y: 75, z: -2783.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+      wave4:
+        name: "Final Assault"
+        description: "The main force attacks from every side."
+        delay-after-seconds: 5
+        spawns:
+          - { profile: dreadbound, x: 105.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: dreadbound, x: 113.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: dreadbound, x: 109.5, y: 75, z: -2791.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: ravager, x: 106.5, y: 75, z: -2790.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: ravager, x: 112.5, y: 75, z: -2784.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: archer, x: 109.5, y: 75, z: -2783.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: archer, x: 106.5, y: 75, z: -2784.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+          - { profile: archer, x: 112.5, y: 75, z: -2790.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+      wave5:
+        name: "Champion"
+        description: "The champion enters alone."
+        delay-after-seconds: 5
+        spawns:
+          - { profile: champion, x: 109.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
