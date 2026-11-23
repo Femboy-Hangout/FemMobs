@@ -6,7 +6,7 @@ This project implements custom mob spawning, originally for the Forsaken arena m
 
 ## Project and runtime
 
-- Kotlin JVM plugin, built against Paper API `26.3.build.+`.
+- Kotlin JVM plugin, built against Paper API `26.3.build.230-stable` (pinned to match the server).
 - Java toolchain target: 25.
 - Paper `paper-plugin.yml` plugin entry point, with `api-version: '26.3'` and `folia-supported: true`.
 - Uses Folia region scheduling for spawning and global-region scheduling for wave timing. Mob deaths are observed via Bukkit's entity-death event.
@@ -41,4 +41,4 @@ Profiles follow the supplied handoff's stats and equipment for Grunt, Archer, Ra
 
 ## Follow-up
 
-Builds cleanly (no warnings) against Paper API 26.3.build.258. Still to do: an in-game smoke test on both Paper and Folia, verify PlugManX lifecycle behavior, check that FemItems sees each scoreboard tag, and playtest the wave difficulty. The original handoff says the proposed balance has not yet been player-tested.
+The Paper API dependency is pinned to `26.3.build.230-stable`, the build the server runs. Build 258 added APIs (e.g. `Mob.setPersistenceRequired`) that crash with `NoSuchMethodError` on 230, so bump the pin only after the server is updated. Builds cleanly (no warnings) against it. Still to do: an in-game smoke test on both Paper and Folia, verify PlugManX lifecycle behavior, check that FemItems sees each scoreboard tag, and playtest the wave difficulty. The original handoff says the proposed balance has not yet been player-tested.

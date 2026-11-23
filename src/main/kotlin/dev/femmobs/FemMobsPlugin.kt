@@ -20,7 +20,6 @@ import org.bukkit.configuration.ConfigurationSection
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.entity.Entity
 import org.bukkit.entity.LivingEntity
-import org.bukkit.entity.Mob
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
@@ -38,6 +37,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadLocalRandom
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.logging.Level
 
 class FemMobsPlugin : JavaPlugin(), Listener {
     private class Settings(
@@ -463,14 +463,18 @@ class FemMobsPlugin : JavaPlugin(), Listener {
             repeat(spawn.amount) {
                 val location = spawnLocation(world, spawn)
                 Bukkit.getRegionScheduler().execute(this, location) {
-                    if (run.active) {
+                    if (run.active) runCatching {
                         spawnProfile(spawn.profile, location) { entity ->
                             entity.addScoreboardTag(run.tag)
                             // Wave mobs must never despawn, or the wave would wait for them forever.
-                            (entity as? Mob)?.isPersistenceRequired = true
+                            entity.removeWhenFarAway = false
                             run.alive.add(entity.uniqueId)
                         }
+                    }.onFailure { error ->
+                        logger.log(Level.WARNING, "Failed to spawn '${spawn.profile.key}' for ${run.arena.name}", error)
+                        notifyOwner(run, "Failed to spawn ${spawn.profile.name}: ${error}. See the console.")
                     }
+                    // Always count the attempt, or a failed spawn would leave the wave waiting forever.
                     if (run.pendingSpawns.decrementAndGet() == 0) done()
                 }
             }
@@ -599,11 +603,16 @@ class FemMobsPlugin : JavaPlugin(), Listener {
             Bukkit.getRegionScheduler().execute(this, target) {
                 val spot = standingSpot(target)
                 if (spot == null) { tell(player, "No room to spawn ${profile.name} in front of you."); return@execute }
-                repeat(count) { index ->
-                    val location = if (index == 0) spot else scatter(spot) ?: spot
-                    spawnProfile(profile, location) { it.addScoreboardTag(FREE_SPAWN_TAG) }
+                try {
+                    repeat(count) { index ->
+                        val location = if (index == 0) spot else scatter(spot) ?: spot
+                        spawnProfile(profile, location) { it.addScoreboardTag(FREE_SPAWN_TAG) }
+                    }
+                    tell(player, "Spawned ${count}x ${profile.name}.")
+                } catch (error: Throwable) {
+                    logger.log(Level.WARNING, "Failed to spawn '${profile.key}' for ${player.name}", error)
+                    tell(player, "Failed to spawn ${profile.name}: ${error}. See the console.")
                 }
-                tell(player, "Spawned ${count}x ${profile.name}.")
             }
         }, null)
     }

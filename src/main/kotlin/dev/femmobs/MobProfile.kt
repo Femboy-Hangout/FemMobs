@@ -61,6 +61,9 @@ data class MobProfile(
         entity.customName(Component.text(name, nameColor))
         entity.isCustomNameVisible = nameVisible
         entity.isPersistent = persistent
+        // isPersistent only controls saving on chunk unload; this stops natural despawning.
+        // Mob.setPersistenceRequired is newer (Paper 26.3 build 258+) and missing on older servers.
+        entity.removeWhenFarAway = !persistent
         entity.isInvulnerable = invulnerable
         entity.isGlowing = glowing
         entity.isSilent = silent
@@ -68,8 +71,6 @@ data class MobProfile(
         (entity as? Mob)?.let {
             it.setAI(hasAi)
             it.setCanPickupItems(canPickupItems)
-            // isPersistent only controls saving on chunk unload; this stops natural despawning.
-            it.isPersistenceRequired = persistent
         }
         tags.forEach(entity::addScoreboardTag)
 
