@@ -584,7 +584,9 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     private fun spawnProfile(profile: MobProfile, location: Location, extra: (LivingEntity) -> Unit = {}): LivingEntity {
         @Suppress("UNCHECKED_CAST")
         val type = profile.entityType.entityClass as Class<LivingEntity>
-        return location.world.spawn(location, type) { entity ->
+        // randomizeData = false skips vanilla spawn randomization (random babies, chicken jockeys,
+        // random armor and weapons), so the profile alone decides how the mob looks.
+        return location.world.spawn(location, type, false) { entity ->
             profile.applyTo(entity, logger)
             extra(entity)
         }

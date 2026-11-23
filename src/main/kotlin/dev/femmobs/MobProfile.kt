@@ -11,6 +11,7 @@ import org.bukkit.Registry
 import org.bukkit.attribute.Attribute
 import org.bukkit.configuration.ConfigurationSection
 import org.bukkit.enchantments.Enchantment
+import org.bukkit.entity.Ageable
 import org.bukkit.entity.EntityType
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Mob
@@ -50,6 +51,7 @@ data class MobProfile(
     val silent: Boolean,
     val hasAi: Boolean,
     val canPickupItems: Boolean,
+    val baby: Boolean,
     val fireTicks: Int,
     val tags: List<String>,
     val health: Double?,
@@ -72,6 +74,7 @@ data class MobProfile(
             it.setAI(hasAi)
             it.setCanPickupItems(canPickupItems)
         }
+        (entity as? Ageable)?.let { if (baby) it.setBaby() else it.setAdult() }
         tags.forEach(entity::addScoreboardTag)
 
         attributes.forEach { (attribute, value) ->
@@ -206,6 +209,7 @@ fun loadMobProfile(key: String, section: ConfigurationSection): MobProfile {
         silent = section.getBoolean("silent", false),
         hasAi = section.getBoolean("ai", true),
         canPickupItems = section.getBoolean("can-pickup-items", false),
+        baby = section.getBoolean("baby", false),
         fireTicks = section.getInt("fire-ticks", 0),
         tags = section.getStringList("scoreboard-tags"),
         health = if (section.contains("health")) section.getDouble("health") else null,

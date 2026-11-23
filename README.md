@@ -4,7 +4,7 @@ FemMobs spawns configurable custom mobs on Paper and Folia 26.3: as waves in any
 
 ## Install
 
-1. Copy `build/libs/FemMobs-1.1.0.jar` into the server's `plugins` folder (or load it with your PlugManX version).
+1. Copy `build/libs/FemMobs-1.1.2.jar` into the server's `plugins` folder, removing any older FemMobs jar, and restart the server. PlugManX can't reliably reload Paper plugins (`paper-plugin.yml`): it may keep running the old code.
 2. Start the server once. FemMobs creates `plugins/FemMobs/config.yml`.
 3. Edit mob profiles, equipment, attributes, effects, arenas, and wave coordinates in that config.
 4. Run `/femmobs reload` to apply config changes. Reload stops every running arena first. If the new config has an error, the old one stays active and the error is shown.
@@ -55,6 +55,9 @@ Edit `plugins/FemMobs/config.yml`. The bundled file documents all settings and c
 | `equipment` | Optional `main-hand`, `off-hand`, `helmet`, `chestplate`, `leggings`, and `boots` items. Set `material`, optional `amount`, an `enchantments` map, and `drop-chance` (0 to 1) per slot. |
 | `effects` | List of potion `type`, `amplifier`, `duration-seconds`, `ambient`, `particles`, and `icon`. A duration of `-1` is infinite. |
 | `invulnerable`, `glowing`, `silent`, `ai`, `can-pickup-items`, `fire-ticks` | Additional entity flags and initial fire duration. `ai` and pickup settings apply to mob entities. |
+| `baby` | `true` spawns the baby form for mobs that have one (zombies, husks, piglins, animals). Default `false`. |
+
+Mobs spawn without vanilla's random spawn data: no random babies, chicken jockeys, or random armor and weapons. Only the profile's settings and equipment apply.
 
 Attribute and enchantment names use Bukkit names, with hyphens or underscores accepted for attributes and lowercase names for enchantments. Enchantment levels can exceed normal survival limits. Item `drop-chance` affects only vanilla equipment drops; FemItems or your loot plugin can still award configured rewards on death.
 

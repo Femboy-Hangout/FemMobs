@@ -23,6 +23,8 @@ mobs:
     # icon: ZOMBIE_HEAD
     # true: never despawns naturally and is saved with the chunk. Arena wave mobs never despawn either way.
     persistent: true
+    # Optional: true spawns the baby form for mobs that have one. Defaults to false (always adult).
+    # baby: false
     # These exact scoreboard tags are read by FemItems for custom drops.
     scoreboard-tags:
       - forsaken.grunt
