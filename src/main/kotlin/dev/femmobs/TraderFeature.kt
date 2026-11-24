@@ -13,6 +13,7 @@ import net.kyori.adventure.text.format.NamedTextColor
 import net.kyori.adventure.text.format.TextColor
 import net.kyori.adventure.text.format.TextDecoration
 import net.kyori.adventure.text.minimessage.MiniMessage
+import org.bukkit.Bukkit
 import org.bukkit.NamespacedKey
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.AbstractVillager
@@ -26,6 +27,7 @@ import org.bukkit.inventory.ItemStack
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.logging.Level
 
 /**
  * Custom villager / wandering trader builder. Traders are built step by step in chat with clickable
@@ -78,10 +80,23 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
         .then(Commands.literal("b").then(Commands.argument("action", StringArgumentType.greedyString())
             .executes { ctx -> asPlayer(ctx.source.sender) { builderAction(it, StringArgumentType.getString(ctx, "action")) } }))
 
-    /** Runs [action] on the player's own thread, which owns their inventory and surroundings. */
+    /**
+     * Runs [action] on the player's own thread, which owns their inventory and surroundings: right away when
+     * the command is already there (always on Paper), otherwise via the player's scheduler (Folia).
+     * Any error is reported in chat and logged instead of disappearing.
+     */
     private fun asPlayer(sender: CommandSender, action: (Player) -> Unit): Int {
         if (sender !is Player) { sender.sendMessage("Only a player can do that."); return 0 }
-        sender.scheduler.run(plugin, { action(sender) }, null)
+        val guarded = {
+            try {
+                action(sender)
+            } catch (error: Throwable) {
+                plugin.logger.log(Level.WARNING, "Trader command failed for ${sender.name}", error)
+                sender.sendMessage(Component.text("Trader command failed: $error (details in the console).", NamedTextColor.RED))
+            }
+        }
+        if (Bukkit.isOwnedByCurrentRegion(sender)) guarded()
+        else if (sender.scheduler.run(plugin, { guarded() }, null) == null) plugin.logger.warning("Could not schedule trader command for ${sender.name}.")
         return 1
     }
 
@@ -113,6 +128,7 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
     }
 
     private fun create(player: Player, rawName: String) {
+        plugin.logger.info("[trader] ${player.name} is creating trader '$rawName'.")
         val key = rawName.lowercase()
         if (!KEY_PATTERN.matches(key)) { player.sendMessage("Trader names may only use a-z, 0-9, _ and - (max 32 characters)."); return }
         if (key in traders) { player.sendMessage("A trader named '$key' already exists. Use /femmobs trader edit $key."); return }
@@ -324,6 +340,7 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
         nav += button("Discard", "$B discard", "Throw away these changes", NamedTextColor.RED)
         lines += join(nav)
         lines.forEach(player::sendMessage)
+        plugin.logger.info("[trader] Showed ${player.name} the ${draft.step.title} step of '${spec.key}' (${lines.size} lines).")
     }
 
     private fun behaviorLines(spec: TraderSpec): List<Component> {
