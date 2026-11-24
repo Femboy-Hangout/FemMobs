@@ -9,4 +9,4 @@ set "PATH=%JAVA_HOME%\bin;%PATH%"
 call "%~dp0gradlew.bat" clean build
 if errorlevel 1 exit /b %errorlevel%
 echo.
-echo Plugin built: %~dp0build\libs\FemMobs-1.1.2.jar
+echo Plugin built: %~dp0build\libs\FemMobs-1.2.0.jar

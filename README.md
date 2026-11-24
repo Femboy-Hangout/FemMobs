@@ -4,7 +4,7 @@ FemMobs spawns configurable custom mobs on Paper and Folia 26.3: as waves in any
 
 ## Install
 
-1. Copy `build/libs/FemMobs-1.1.2.jar` into the server's `plugins` folder, removing any older FemMobs jar, and restart the server. PlugManX can't reliably reload Paper plugins (`paper-plugin.yml`): it may keep running the old code.
+1. Copy `build/libs/FemMobs-1.2.0.jar` into the server's `plugins` folder, removing any older FemMobs jar, and restart the server. PlugManX can't reliably reload Paper plugins (`paper-plugin.yml`): it may keep running the old code.
 2. Start the server once. FemMobs creates `plugins/FemMobs/config.yml`.
 3. Edit mob profiles, equipment, attributes, effects, arenas, and wave coordinates in that config.
 4. Run `/femmobs reload` to apply config changes. Reload stops every running arena first. If the new config has an error, the old one stays active and the error is shown.
@@ -31,9 +31,10 @@ To revoke access, set the node to `false` for that group or user. Players withou
 | `/femmobs start <arena>` | Starts that arena's automatic campaign at wave 1. The next wave starts after all mobs in the current wave are gone and the delay passes. The arena name can be left out when only one arena exists. |
 | `/femmobs stop [arena]` | Stops one arena, or every arena without an argument, and removes the wave mobs it spawned. |
 | `/femmobs spawn <mob> [amount]` | Spawns a mob profile (1 to 64 copies) a few blocks in front of you, facing you. |
+| `/femmobs trader ...` | Builds, saves, and spawns custom villager and wandering traders. See [Custom traders](#custom-traders). |
 | `/femmobs status` | Lists running arenas and how many of their mobs remain. |
 | `/femmobs cleanup` | Removes leftover wave mobs from earlier runs (after a restart or plugin reload) within 64 blocks of any online player. |
-| `/femmobs reload` | Stops all running arenas, then reloads `config.yml`. |
+| `/femmobs reload` | Stops all running arenas, then reloads `config.yml` and `traders.yml`. |
 
 Different arenas can run at the same time; each arena runs one campaign or single wave at a time. A wave spawned from the menu does not continue to the next wave. Wave progress messages go only to the player who started the run (or to the console log), never to the whole server.
 
@@ -151,6 +152,34 @@ arenas:
 ```
 
 Profile names must match keys under `mobs`. If you change names, tags, or mob profiles, update the matching loot plugin configuration too.
+
+## Custom traders
+
+Build villagers and wandering traders with your own trades, save them, and spawn them in front of you. Everything is done in chat with clickable buttons; nothing has to be typed into a config file.
+
+| Command | What it does |
+| --- | --- |
+| `/femmobs trader create <name>` | Starts building a new trader. Names use `a-z`, `0-9`, `_` and `-`. |
+| `/femmobs trader edit <name>` | Reopens a saved trader in the builder. |
+| `/femmobs trader spawn <name>` | Spawns a saved trader a few blocks in front of you, facing you. |
+| `/femmobs trader apply <name>` | Replaces the trades of the villager or wandering trader you're looking at (within 8 blocks). Its look and level are kept. |
+| `/femmobs trader list` | Lists saved traders with Spawn and Edit buttons. |
+| `/femmobs trader delete <name>` | Deletes a saved trader. Already spawned traders keep their trades. |
+| `/femmobs trader` | Shows your current draft again, or this command list. |
+
+The builder shows one part at a time. Click a part in the step bar to jump to it, or use **Back** / **Next**:
+
+1. **Type**: villager or wandering trader.
+2. **Profession**: armorer to weaponsmith (villagers only; unemployed and nitwit can't trade).
+3. **Biome look**: desert, jungle, plains, savanna, snow, swamp, taiga (villagers only).
+4. **Level**: Novice to Master badge (villagers only).
+5. **Name & behavior**: optional name (MiniMessage colors work, e.g. `<gold>Bob`), and toggles for *Stay in place* (no AI; trading still works), *Can't be hurt*, *Silent*, and *Never despawns*.
+6. **Trades**: add, edit, reorder, or remove trades. For each trade, hold an item and click **Use hand** to set **Cost 1**, optional **Cost 2**, and **Result**. The item is copied exactly, including amount, name, lore, enchantments, and custom plugin items. Each trade also has **Uses** (unlimited by default, because summoned traders can't restock), **Villager XP**, and **Fixed price** (on by default: reputation, discounts, and demand never change the price).
+7. **Review**: summary, **Save**, and **Spawn preview** (spawns the draft without saving).
+
+Drafts live in memory until you save or discard them. Saved traders are written to `plugins/FemMobs/traders.yml`; items are stored in Paper's binary item format so they come back exactly, which is why trades are edited in-game rather than in the file.
+
+Spawned and applied traders get the tag `femmobs.trader`. Tagged villagers never gain random trades on level-up and never lose or change their job, and villagers are given the XP their level needs so they keep their profession without a job site. Wandering traders with *Never despawns* have no despawn timer.
 
 ## Scheduling and cleanup
 

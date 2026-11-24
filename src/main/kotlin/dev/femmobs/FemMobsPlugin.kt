@@ -60,12 +60,16 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     private val runs = ConcurrentHashMap<String, ArenaRun>()
     @Volatile private lateinit var settings: Settings
     private var ownsAdminPermission = false
+    private lateinit var traders: TraderFeature
 
     override fun onEnable() {
         saveDefaultConfig()
         migrateConfigIfNeeded()
         settings = loadSettings()
+        traders = TraderFeature(this, dataFolder)
+        traders.load()
         server.pluginManager.registerEvents(this, this)
+        server.pluginManager.registerEvents(traders, this)
         val adminPermission = server.pluginManager.getPermission(PERMISSION)
         if (adminPermission == null) {
             server.pluginManager.addPermission(Permission(PERMISSION, PermissionDefault.FALSE))
@@ -81,6 +85,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     }
 
     override fun onDisable() {
+        if (::traders.isInitialized) traders.clearDrafts()
         val folia = isFolia()
         runs.values.toList().forEach { run ->
             endRun(run)
@@ -119,6 +124,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         .then(Commands.literal("cleanup").executes { ctx -> sweepOrphansNearPlayers(ctx.sender); Command.SINGLE_SUCCESS })
         .then(Commands.literal("reload").executes { ctx -> reload(ctx.sender) })
         .then(Commands.literal("gui").executes { ctx -> openGui(ctx.sender) })
+        .then(traders.command())
         .then(Commands.literal("help").executes { ctx -> sendHelp(ctx.sender) })
         .executes { ctx -> sendHelp(ctx.sender) }
         .build()
@@ -190,8 +196,9 @@ class FemMobsPlugin : JavaPlugin(), Listener {
                 reloadConfig()
                 migrateConfigIfNeeded()
                 settings = loadSettings()
+                traders.load()
                 val note = if (stopped.isEmpty()) "" else " Stopped ${stopped.size} running arena(s) first."
-                tell(sender, "FemMobs reloaded: ${settings.profiles.size} mob profiles, ${settings.arenas.size} arenas.$note")
+                tell(sender, "FemMobs reloaded: ${settings.profiles.size} mob profiles, ${settings.arenas.size} arenas, ${traders.count} traders.$note")
             } catch (e: Exception) {
                 logger.warning("Reload failed: ${e.message}")
                 tell(sender, "Reload failed, keeping the previous config: ${e.message}")
@@ -224,9 +231,10 @@ class FemMobsPlugin : JavaPlugin(), Listener {
             "/femmobs start <arena> - start an arena's automatic campaign; the next wave starts once the current one is cleared.",
             "/femmobs stop [arena] - stop one arena (or all) and remove the wave mobs it spawned.",
             "/femmobs spawn <mob> [amount] - spawn a mob profile a few blocks in front of you.",
+            "/femmobs trader - build custom villager/wandering traders in chat, then spawn them (see /femmobs trader).",
             "/femmobs status - show running arenas and how many mobs remain.",
             "/femmobs cleanup - remove leftover wave mobs (from a restart or reload) near online players.",
-            "/femmobs reload - reload config.yml (stops running arenas first).",
+            "/femmobs reload - reload config.yml and traders.yml (stops running arenas first).",
             "Edit mob profiles and arenas in plugins/FemMobs/config.yml, then run /femmobs reload.",
         ).forEach(sender::sendMessage)
         return Command.SINGLE_SUCCESS
@@ -595,6 +603,16 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     /** Spawns a profile a few blocks in front of the player, facing them. Not tied to any arena run. */
     private fun spawnInFront(player: Player, profile: MobProfile, amount: Int) {
         val count = amount.coerceAtMost(settings.maxMobsPerWave)
+        spawnInFront(player, profile.name, count) { location ->
+            spawnProfile(profile, location) { it.addScoreboardTag(FREE_SPAWN_TAG) }
+        }
+    }
+
+    /**
+     * Finds room a few blocks in front of the player and calls [spawn] [count] times on the region that
+     * owns that spot. Each location faces the player. Errors are reported to the player and logged.
+     */
+    internal fun spawnInFront(player: Player, label: String, count: Int, spawn: (Location) -> Unit) {
         val distance = settings.spawnDistance
         player.scheduler.run(this, {
             val origin = player.location
@@ -604,16 +622,13 @@ class FemMobsPlugin : JavaPlugin(), Listener {
             target.pitch = 0f
             Bukkit.getRegionScheduler().execute(this, target) {
                 val spot = standingSpot(target)
-                if (spot == null) { tell(player, "No room to spawn ${profile.name} in front of you."); return@execute }
+                if (spot == null) { tell(player, "No room to spawn $label in front of you."); return@execute }
                 try {
-                    repeat(count) { index ->
-                        val location = if (index == 0) spot else scatter(spot) ?: spot
-                        spawnProfile(profile, location) { it.addScoreboardTag(FREE_SPAWN_TAG) }
-                    }
-                    tell(player, "Spawned ${count}x ${profile.name}.")
+                    repeat(count) { index -> spawn(if (index == 0) spot else scatter(spot) ?: spot) }
+                    tell(player, "Spawned ${count}x $label.")
                 } catch (error: Throwable) {
-                    logger.log(Level.WARNING, "Failed to spawn '${profile.key}' for ${player.name}", error)
-                    tell(player, "Failed to spawn ${profile.name}: ${error}. See the console.")
+                    logger.log(Level.WARNING, "Failed to spawn '$label' for ${player.name}", error)
+                    tell(player, "Failed to spawn $label: ${error}. See the console.")
                 }
             }
         }, null)
@@ -754,7 +769,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         else Bukkit.getPlayer(owner)?.let { tell(it, message) }
     }
 
-    private fun tell(sender: CommandSender, message: String) {
+    internal fun tell(sender: CommandSender, message: String) {
         if (sender is Player) sender.scheduler.run(this, { sender.sendMessage(message) }, null)
         else sender.sendMessage(message)
     }
