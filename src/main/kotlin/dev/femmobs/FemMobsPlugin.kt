@@ -45,6 +45,8 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         val arenas: Map<String, ArenaSpec>,
         val maxMobsPerWave: Int,
         val spawnDistance: Double,
+        val events: Map<String, EventSpec>,
+        val maxEventRadius: Int,
     )
 
     /** One active campaign or single menu wave in one arena. Several arenas may run at the same time. */
@@ -61,6 +63,10 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     @Volatile private lateinit var settings: Settings
     private var ownsAdminPermission = false
     private lateinit var traders: TraderFeature
+    private lateinit var events: EventFeature
+
+    internal val eventSpecs: Map<String, EventSpec> get() = settings.events
+    internal val maxEventRadius: Int get() = settings.maxEventRadius
 
     override fun onEnable() {
         saveDefaultConfig()
@@ -68,6 +74,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         settings = loadSettings()
         traders = TraderFeature(this, dataFolder)
         traders.load()
+        events = EventFeature(this)
         server.pluginManager.registerEvents(this, this)
         server.pluginManager.registerEvents(traders, this)
         val adminPermission = server.pluginManager.getPermission(PERMISSION)
@@ -87,6 +94,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     override fun onDisable() {
         if (::traders.isInitialized) traders.clearDrafts()
         val folia = isFolia()
+        if (::events.isInitialized) events.shutdown(folia)
         runs.values.toList().forEach { run ->
             endRun(run)
             // On Paper the disabling thread owns every entity, so mobs can be removed now. Folia forbids
@@ -125,6 +133,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         .then(Commands.literal("reload").executes { ctx -> reload(ctx.sender) })
         .then(Commands.literal("gui").executes { ctx -> openGui(ctx.sender) })
         .then(traders.command())
+        .then(events.command())
         .then(Commands.literal("help").executes { ctx -> sendHelp(ctx.sender) })
         .executes { ctx -> sendHelp(ctx.sender) }
         .build()
@@ -181,6 +190,9 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     private fun status(sender: CommandSender): Int {
         if (runs.isEmpty()) sender.sendMessage("No arenas are running.")
         else runs.values.forEach { sender.sendMessage("${it.arena.name}: ${describeRun(it)}") }
+        val runningEvents = events.running
+        if (runningEvents.isEmpty()) sender.sendMessage("No events are running.")
+        else runningEvents.forEach { sender.sendMessage("Event $it") }
         return Command.SINGLE_SUCCESS
     }
 
@@ -192,13 +204,14 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         Bukkit.getGlobalRegionScheduler().execute(this) {
             val stopped = runs.values.toList()
             stopped.forEach(::stopRun)
+            events.stopAll()
             try {
                 reloadConfig()
                 migrateConfigIfNeeded()
                 settings = loadSettings()
                 traders.load()
                 val note = if (stopped.isEmpty()) "" else " Stopped ${stopped.size} running arena(s) first."
-                tell(sender, "FemMobs reloaded: ${settings.profiles.size} mob profiles, ${settings.arenas.size} arenas, ${traders.count} traders.$note")
+                tell(sender, "FemMobs reloaded: ${settings.profiles.size} mob profiles, ${settings.arenas.size} arenas, ${settings.events.size} events, ${traders.count} traders.$note")
             } catch (e: Exception) {
                 logger.warning("Reload failed: ${e.message}")
                 tell(sender, "Reload failed, keeping the previous config: ${e.message}")
@@ -227,10 +240,12 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     private fun sendHelp(sender: CommandSender): Int {
         listOf(
             "FemMobs commands:",
-            "/femmobs gui - open the menu: browse arenas and their waves, or spawn any mob profile in front of you.",
+            "/femmobs gui - open the menu: arenas and their waves, server events, or spawn any mob profile in front of you.",
             "/femmobs start <arena> - start an arena's automatic campaign; the next wave starts once the current one is cleared.",
             "/femmobs stop [arena] - stop one arena (or all) and remove the wave mobs it spawned.",
             "/femmobs spawn <mob> [amount] - spawn a mob profile a few blocks in front of you.",
+            "/femmobs event start <event> <radius> - start a server event: mobs spawn within <radius> blocks of you, announced to everyone, removed when time runs out.",
+            "/femmobs event stop [event] - end one (or every) event early and remove its mobs. /femmobs event list shows all events.",
             "/femmobs trader - build custom villager/wandering traders in chat, then spawn them (see /femmobs trader).",
             "/femmobs status - show running arenas and how many mobs remain.",
             "/femmobs cleanup - remove leftover wave mobs (from a restart or reload) near online players.",
@@ -248,6 +263,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
             var changed = false
             if (!config.contains("max-mobs-per-wave", true)) { config.set("max-mobs-per-wave", 100); changed = true }
             if (!config.contains("spawn-menu.distance", true)) { config.set("spawn-menu.distance", 3.0); changed = true }
+            if (addEventsIfMissing()) changed = true
             if (changed) saveConfigFile()
             return
         }
@@ -274,9 +290,21 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         config.set("arena", null)
         config.set("max-mobs-per-wave", maxMobs)
         config.set("spawn-menu.distance", 3.0)
-        config.set("config-version", 3)
+        addEventsIfMissing()
         saveConfigFile()
         logger.info("Updated FemMobs config to version 3 (multiple arenas). Your previous arena is now 'arenas.forsaken'.")
+    }
+
+    /** Version 4 added server events; older configs get the bundled example event. Returns true if it changed anything. */
+    private fun addEventsIfMissing(): Boolean {
+        if (config.contains("events", true)) return false
+        val bundled = YamlConfiguration()
+        getResource("config.yml")!!.bufferedReader().use { bundled.load(it) }
+        if (!config.contains("max-event-radius", true)) config.set("max-event-radius", 200)
+        copySection(bundled.getConfigurationSection("events")!!, config.createSection("events"))
+        config.set("config-version", 4)
+        logger.info("Added the example server event 'invasion' to config.yml (config version 4).")
+        return true
     }
 
     /** Converts the original list-based `arena.waves` format (version 1) into wave sections. */
@@ -354,7 +382,16 @@ class FemMobsPlugin : JavaPlugin(), Listener {
                 ?: throw IllegalArgumentException("arenas.$key must be a configuration section")
             arenas[key] = loadArena(key, section, profiles, maxMobsPerWave)
         }
-        return Settings(profiles, arenas, maxMobsPerWave, spawnDistance)
+        val maxEventRadius = config.getInt("max-event-radius", 200)
+        require(maxEventRadius in EventFeature.MIN_RADIUS..1000) { "max-event-radius must be between ${EventFeature.MIN_RADIUS} and 1000" }
+        val eventSection = config.getConfigurationSection("events")
+        val events = LinkedHashMap<String, EventSpec>()
+        eventSection?.getKeys(false)?.forEach { key ->
+            val section = eventSection.getConfigurationSection(key)
+                ?: throw IllegalArgumentException("events.$key must be a configuration section")
+            events[key.lowercase()] = loadEvent(key.lowercase(), section, profiles, maxMobsPerWave)
+        }
+        return Settings(profiles, arenas, maxMobsPerWave, spawnDistance, events, maxEventRadius)
     }
 
     private fun loadArena(arenaKey: String, section: ConfigurationSection, profiles: Map<String, MobProfile>, maxMobsPerWave: Int): ArenaSpec {
@@ -530,7 +567,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
 
     /** A wave mob from a run that no longer exists (server restart, plugin reload, crash). */
     private fun isOrphan(entity: Entity): Boolean =
-        entity.scoreboardTags.any { it.startsWith(RUN_TAG_PREFIX) } && runFor(entity) == null
+        entity.scoreboardTags.any { it.startsWith(RUN_TAG_PREFIX) } && runFor(entity) == null && !events.ownsEntity(entity)
 
     private fun release(entity: Entity) {
         val run = runFor(entity) ?: return
@@ -541,17 +578,23 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     }
 
     @EventHandler
-    fun onDeath(event: EntityDeathEvent) = release(event.entity)
+    fun onDeath(event: EntityDeathEvent) {
+        release(event.entity)
+        events.onDeath(event.entity, event.entity.killer)
+    }
 
     /** Despawns, void falls, /kill and other removals also count as the mob being gone; chunk unloads do not. */
     @EventHandler
     fun onRemove(event: EntityRemoveEvent) {
-        if (event.cause != EntityRemoveEvent.Cause.UNLOAD) release(event.entity)
+        if (event.cause == EntityRemoveEvent.Cause.UNLOAD) return
+        release(event.entity)
+        events.onGone(event.entity)
     }
 
     /** A wave mob that converts (husk to zombie, zombie to drowned, ...) keeps counting for its wave. */
     @EventHandler(ignoreCancelled = true)
     fun onTransform(event: EntityTransformEvent) {
+        events.onTransform(event)
         val run = runFor(event.entity) ?: return
         if (event.entity.uniqueId !in run.alive) return
         event.transformedEntities.forEach { converted ->
@@ -589,7 +632,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
 
     // ---------------------------------------------------------------- free spawning
 
-    private fun spawnProfile(profile: MobProfile, location: Location, extra: (LivingEntity) -> Unit = {}): LivingEntity {
+    internal fun spawnProfile(profile: MobProfile, location: Location, extra: (LivingEntity) -> Unit = {}): LivingEntity {
         @Suppress("UNCHECKED_CAST")
         val type = profile.entityType.entityClass as Class<LivingEntity>
         // randomizeData = false skips vanilla spawn randomization (random babies, chicken jockeys,
@@ -648,18 +691,59 @@ class FemMobsPlugin : JavaPlugin(), Listener {
 
     // ---------------------------------------------------------------- menus
 
-    private fun openMainMenu(player: Player) {
+    internal fun openMainMenu(player: Player) {
         val menu = Menu(3, "FemMobs")
-        menu.set(11, Menu.icon(Material.COMPASS, "Arenas", NamedTextColor.GOLD, listOf(
+        menu.set(10, Menu.icon(Material.COMPASS, "Arenas", NamedTextColor.GOLD, listOf(
             Menu.line("${settings.arenas.size} configured, ${runs.size} running", NamedTextColor.YELLOW),
             Menu.line("Browse arenas, spawn single waves,"),
             Menu.line("or start and stop campaigns."),
         ))) { p, _ -> openArenaList(p, 0) }
-        menu.set(15, Menu.icon(Material.SPAWNER, "Spawn mobs", NamedTextColor.GOLD, listOf(
+        menu.set(13, Menu.icon(Material.IRON_SWORD, "Events", NamedTextColor.GOLD, listOf(
+            Menu.line("${settings.events.size} configured, ${events.running.size} running", NamedTextColor.YELLOW),
+            Menu.line("Start a server event around you:"),
+            Menu.line("mobs spawn in a circle, then despawn."),
+        ))) { p, _ -> openEventList(p, 0) }
+        menu.set(16, Menu.icon(Material.SPAWNER, "Spawn mobs", NamedTextColor.GOLD, listOf(
             Menu.line("${settings.profiles.size} mob profiles", NamedTextColor.YELLOW),
             Menu.line("Spawn any profile a few blocks"),
             Menu.line("in front of you."),
         ))) { p, _ -> openMobMenu(p, 0) }
+        menu.open(player)
+    }
+
+    private fun openEventList(player: Player, page: Int) {
+        pagedMenu(player, "Events", settings.events.values.toList(), page, ::openEventList, ::openMainMenu) { menu, slot, spec ->
+            val lore = mutableListOf(
+                Menu.line(events.describe(spec), NamedTextColor.YELLOW),
+                Menu.line("Mode: ${if (spec.mode == EventMode.FIXED) "fixed (ends when all are killed)" else "keep population"}"),
+                Menu.line("Mobs: ${spec.rosterText()}"),
+            )
+            lore += if (events.isRunning(spec.key)) Menu.line("Running", NamedTextColor.RED) else Menu.line("Idle", NamedTextColor.DARK_GRAY)
+            lore += Component.empty()
+            lore += Menu.line("Click to choose a radius and start", NamedTextColor.GREEN)
+            menu.set(slot, Menu.icon(spec.icon, spec.name, NamedTextColor.GOLD, lore)) { p, _ -> openEventRadius(p, spec.key) }
+        }
+    }
+
+    /** Pick a radius; the event starts centered on the player. */
+    private fun openEventRadius(player: Player, eventKey: String) {
+        val spec = settings.events[eventKey] ?: return openEventList(player, 0)
+        val menu = Menu(3, "${spec.name}: radius")
+        val radii = listOf(10, 15, 25, 50, 75, 100, 150).filter { it <= settings.maxEventRadius }
+        radii.forEachIndexed { index, radius ->
+            menu.set(9 + index + (7 - radii.size) / 2 + 1, Menu.icon(Material.LIME_CONCRETE, "$radius blocks", NamedTextColor.GREEN, listOf(
+                Menu.line("Mobs spawn up to $radius blocks"),
+                Menu.line("from you in every direction."),
+                Menu.line("Other sizes: /femmobs event start ${spec.key} <radius>", NamedTextColor.DARK_GRAY),
+            ))) { p, _ -> p.closeInventory(); events.start(p, spec.key, radius) }
+        }
+        menu.set(0, Menu.icon(Material.BOOK, spec.name, NamedTextColor.YELLOW, listOf(Menu.line(events.describe(spec)))))
+        if (events.isRunning(spec.key)) {
+            menu.set(8, Menu.icon(Material.BARRIER, "Stop event", NamedTextColor.RED, listOf(
+                Menu.line("Ends it now and removes its mobs."),
+            ))) { p, _ -> p.closeInventory(); events.stop(p, spec.key) }
+        }
+        menu.set(22, Menu.icon(Material.OAK_DOOR, "Back")) { p, _ -> openEventList(p, 0) }
         menu.open(player)
     }
 

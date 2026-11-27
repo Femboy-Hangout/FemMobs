@@ -4,12 +4,12 @@ FemMobs spawns configurable custom mobs on Paper and Folia 26.3: as waves in any
 
 ## Install
 
-1. Copy `build/libs/FemMobs-1.2.1.jar` into the server's `plugins` folder, removing any older FemMobs jar, and restart the server. PlugManX can't reliably reload Paper plugins (`paper-plugin.yml`): it may keep running the old code.
+1. Copy `build/libs/FemMobs-1.3.0.jar` into the server's `plugins` folder, removing any older FemMobs jar, and restart the server. PlugManX can't reliably reload Paper plugins (`paper-plugin.yml`): it may keep running the old code.
 2. Start the server once. FemMobs creates `plugins/FemMobs/config.yml`.
 3. Edit mob profiles, equipment, attributes, effects, arenas, and wave coordinates in that config.
 4. Run `/femmobs reload` to apply config changes. Reload stops every running arena first. If the new config has an error, the old one stays active and the error is shown.
 
-Older FemMobs configs are upgraded automatically. A version 2 config's single `arena` section becomes `arenas.forsaken` with its world, delay, and waves unchanged; `max-mobs-per-wave` moves to the top level. Version 1 list-based waves are converted first.
+Older FemMobs configs are upgraded automatically. Version 3 configs get the example `invasion` event and `max-event-radius` added (version 4). A version 2 config's single `arena` section becomes `arenas.forsaken` with its world, delay, and waves unchanged; `max-mobs-per-wave` moves to the top level. Version 1 list-based waves are converted first.
 
 The server must be Paper or Folia 26.3 and run Java 25. The plugin uses Paper's `paper-plugin.yml` format and Folia region schedulers.
 
@@ -27,10 +27,13 @@ To revoke access, set the node to `false` for that group or user. Players withou
 | Command | What it does |
 | --- | --- |
 | `/femmobs help` | Shows the in-game command guide. Running `/femmobs` also shows it. |
-| `/femmobs gui` | Opens the menu. **Arenas** lists every arena; click one to see its waves, click a wave to spawn just that wave, or use **Start campaign** / **Stop arena** on the bottom row. **Spawn mobs** lists every mob profile; left-click spawns one a few blocks in front of you, shift-click spawns five. |
+| `/femmobs gui` | Opens the menu. **Events** lists server events; click one, pick a radius, and it starts around you. **Arenas** lists every arena; click one to see its waves, click a wave to spawn just that wave, or use **Start campaign** / **Stop arena** on the bottom row. **Spawn mobs** lists every mob profile; left-click spawns one a few blocks in front of you, shift-click spawns five. |
 | `/femmobs start <arena>` | Starts that arena's automatic campaign at wave 1. The next wave starts after all mobs in the current wave are gone and the delay passes. The arena name can be left out when only one arena exists. |
 | `/femmobs stop [arena]` | Stops one arena, or every arena without an argument, and removes the wave mobs it spawned. |
 | `/femmobs spawn <mob> [amount]` | Spawns a mob profile (1 to 64 copies) a few blocks in front of you, facing you. |
+| `/femmobs event start <event> <radius>` | Starts a server event centered on you. Mobs spawn on the ground up to `<radius>` blocks away in every direction. See [Server events](#server-events). |
+| `/femmobs event stop [event]` | Ends one event, or every event without an argument, and removes its mobs. |
+| `/femmobs event list` | Lists configured events and whether they're running. |
 | `/femmobs trader ...` | Builds, saves, and spawns custom villager and wandering traders. See [Custom traders](#custom-traders). |
 | `/femmobs status` | Lists running arenas and how many of their mobs remain. |
 | `/femmobs cleanup` | Removes leftover wave mobs from earlier runs (after a restart or plugin reload) within 64 blocks of any online player. |
@@ -152,6 +155,38 @@ arenas:
 ```
 
 Profile names must match keys under `mobs`. If you change names, tags, or mob profiles, update the matching loot plugin configuration too.
+
+## Server events
+
+An event spawns mobs around wherever you're standing, tells the whole server roughly where, and removes whatever is left when time runs out. Events are templates in `config.yml` under `events`; the place is chosen when you start one.
+
+Start one with `/femmobs event start invasion 15` (mobs spawn up to 15 blocks from you in every direction, a circle 30 blocks across) or from **/femmobs gui → Events**, which offers 10 to 150 block radii. The radius must be between 5 and `max-event-radius` (default 200). Each event can run once at a time; different events can run together.
+
+While an event runs:
+
+- **Spawning**: each mob goes to a random spot in the circle, on solid ground near your height (the surface, or open floor near you in caves and the Nether), never in water or lava, and at least 3 blocks from any player. Chunks load in the background first.
+- **Announcements** go to everyone: a start message with the rounded location and biome (e.g. *around X 1200, Z -2800 (Plains)*), time warnings, and an end message.
+- **Boss bar**: players within the circle (plus 16 blocks) see the event name, time left, and mobs remaining.
+- **End**: when time runs out, or, in `fixed` mode, as soon as every mob is killed. Remaining mobs are removed and a one-line leaderboard of the top killers is announced (`🏆 Top hunters: Lucy 14 · Max 9 · Sam 6`).
+
+Event fields:
+
+| Field | Meaning |
+| --- | --- |
+| `name`, `icon` | Shown in announcements and the menu. |
+| `mode` | `fixed` (default): spawn `mobs` once; the event ends early when all are killed. `keep-population`: keep about `mobs` alive, spawning replacements every `respawn-seconds` (up to 5 at a time). |
+| `mobs` | Fixed: total mobs. Keep population: how many stay alive. At most `max-mobs-per-wave`. Ignored when the roster uses `amount`. |
+| `duration-seconds` | How long the event lasts (10 to 86400). |
+| `roster` | Either `{ profile, weight }` entries, where each mob is picked at random and weights are relative chances, or `{ profile, amount }` entries for exact numbers (the total is their sum; in keep-population mode each profile is kept at its amount). Use one style per event. |
+| `boss` | Optional profile that spawns once at the start, on top of the roster. For no boss, leave it out or write `boss: none`. |
+| `warnings-seconds` | Time-left announcements, e.g. `[300, 60]`. |
+| `boss-bar-color` | `PINK`, `BLUE`, `RED`, `GREEN`, `YELLOW`, `PURPLE`, or `WHITE`. |
+| `leaderboard-size` | How many top killers to list at the end (0 hides it). |
+| `glowing` | Event mobs get a glowing outline visible through blocks so players can find them (default `true`). Arena and spawned mobs only glow if their profile sets `glowing: true`. |
+| `location-rounding` | Coordinates in messages are rounded to this many blocks (default 50). |
+| `messages` | Optional MiniMessage overrides for `start`, `warning`, `end-time`, `end-cleared`, `end-stopped`, `leaderboard`, `leaderboard-entry`, and `boss-bar`. Placeholders: `<event>`, `<location>`, `<time>`, `<mobs>`, `<radius>`; the leaderboard adds `<entries>`, `<player>`, `<kills>`. The bundled config lists the defaults. |
+
+Event mobs keep their profile tags (FemItems loot works) and also get `femmobs.event.<event>`, so FemItems can give event-only drops. They never despawn on their own while the event runs, and leftovers after a restart are removed by the same cleanup as arena mobs. Automatic scheduling isn't built yet; events start only by command or menu.
 
 ## Custom traders
 

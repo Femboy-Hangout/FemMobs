@@ -1,7 +1,7 @@
 # Every profile under `mobs` can be reused in any arena wave, and spawned on its own from
 # /femmobs gui -> Spawn mobs or /femmobs spawn <mob>.
 # After editing this file, run /femmobs reload.
-config-version: 3
+config-version: 4
 
 # Safety limit: reload fails if any wave would spawn more than this many mobs (1 to 500).
 # Each mob is scheduled independently for Folia safety, so raise it carefully.
@@ -32,11 +32,11 @@ mobs:
     # with hyphens or underscores, e.g. max-health, attack-damage, movement-speed,
     # armor, armor-toughness, follow-range, knockback-resistance, attack-knockback.
     attributes:
-      max-health: 40.0
-      attack-damage: 5.5
+      max-health: 34.0
+      attack-damage: 4.5
       movement-speed: 0.25
     # Current health on spawn. Omit this to start at the configured max-health.
-    health: 40.0
+    health: 34.0
     # Equipment slots can be omitted, set material to AIR, and customized independently.
     # Enchantment keys are Bukkit enchantment names; levels may exceed normal limits.
     # drop-chance is 0.0 to 1.0 and controls vanilla equipment drops only.
@@ -76,9 +76,9 @@ mobs:
     persistent: true
     scoreboard-tags: [forsaken.archer]
     attributes:
-      max-health: 30.0
+      max-health: 26.0
       movement-speed: 0.24
-    health: 30.0
+    health: 26.0
     equipment:
       main-hand:
         material: BOW
@@ -110,10 +110,10 @@ mobs:
     persistent: true
     scoreboard-tags: [forsaken.ravager]
     attributes:
-      max-health: 65.0
-      attack-damage: 10.0
+      max-health: 55.0
+      attack-damage: 8.5
       movement-speed: 0.26
-    health: 65.0
+    health: 55.0
     equipment:
       main-hand:
         material: DIAMOND_AXE
@@ -145,10 +145,10 @@ mobs:
     persistent: true
     scoreboard-tags: [forsaken.dreadbound]
     attributes:
-      max-health: 110.0
-      attack-damage: 8.0
+      max-health: 94.0
+      attack-damage: 7.0
       movement-speed: 0.27
-    health: 110.0
+    health: 94.0
     equipment:
       main-hand:
         material: DIAMOND_SWORD
@@ -186,11 +186,11 @@ mobs:
     persistent: true
     scoreboard-tags: [forsaken.champion]
     attributes:
-      max-health: 250.0
-      attack-damage: 12.0
+      max-health: 215.0
+      attack-damage: 10.5
       movement-speed: 0.28
       knockback-resistance: 0.5
-    health: 250.0
+    health: 215.0
     equipment:
       main-hand:
         material: DIAMOND_SWORD
@@ -278,3 +278,121 @@ arenas:
         delay-after-seconds: 5
         spawns:
           - { profile: champion, x: 109.5, y: 75, z: -2787.5, amount: 1, yaw: 0, pitch: 0, spread: 0 }
+
+# Server events: start one where you stand with /femmobs event start <event> <radius>, or from
+# /femmobs gui -> Events. Mobs spawn on the ground within <radius> blocks of you, the whole server
+# is told roughly where, nearby players see a boss bar, and leftover mobs are removed when time runs out.
+# Largest radius allowed when starting an event (blocks).
+max-event-radius: 200
+events:
+  invasion:
+    name: "Forsaken Invasion"
+    icon: IRON_SWORD
+    # fixed: spawn `mobs` once; the event ends early when they are all killed.
+    # keep-population: keep about `mobs` alive, replacing killed ones every `respawn-seconds`.
+    mode: fixed
+    mobs: 30
+    respawn-seconds: 5
+    duration-seconds: 600
+    # Which mob profiles spawn. Two ways (pick one per event):
+    #   weight: each mob is picked at random; weights are relative chances (60/30/10 = 60%, 30%, 10%).
+    #           `mobs` sets how many spawn.
+    #   amount: exact numbers, e.g. always 12 grunts, 6 archers, 2 ravagers. `mobs` is ignored (the total
+    #           is the sum). In keep-population mode each profile is kept at its exact amount.
+    roster:
+      - { profile: grunt, weight: 60 }
+      - { profile: archer, weight: 30 }
+      - { profile: ravager, weight: 10 }
+    # Exact-amount example:
+    # roster:
+    #   - { profile: grunt, amount: 12 }
+    #   - { profile: archer, amount: 6 }
+    #   - { profile: ravager, amount: 2 }
+    # Optional: one extra mob that spawns once at the start. For no boss, remove the line or write: boss: none
+    boss: dreadbound
+    # Announce how much time is left at these points (seconds remaining).
+    warnings-seconds: [300, 60]
+    # Boss bar color: PINK, BLUE, RED, GREEN, YELLOW, PURPLE or WHITE.
+    boss-bar-color: RED
+    # How many top killers the end message lists (0 hides it).
+    leaderboard-size: 3
+    # Coordinates in messages are rounded to this many blocks, so they give a general area.
+    location-rounding: 50
+    # Event mobs glow (outline visible through blocks) so players can find them. Default true;
+    # set false for an event where the mobs should be hidden.
+    glowing: true
+    # Optional message overrides in MiniMessage format. Placeholders: <event>, <location>
+    # (rounded coordinates and biome), <time> (time left), <mobs> (mobs remaining), <radius>.
+    # The leaderboard also has <entries>; each entry has <player> and <kills>.
+    # messages:
+    #   start: "<gold>⚔ <bold><event></bold></gold> <yellow>has begun around <white><location></white>! <time> to fight them off."
+    #   warning: "<gold>⚔ <event>:</gold> <yellow><time> left, <white><mobs></white> mobs remain!"
+    #   end-time: "<gray>⚔ <event> is over. The remaining mobs have retreated."
+    #   end-cleared: "<green>⚔ <event>: every mob was defeated!"
+    #   end-stopped: "<gray>⚔ <event> was stopped."
+    #   leaderboard: "<gold>🏆 Top hunters:</gold> <entries>"
+    #   leaderboard-entry: "<yellow><player></yellow> <white><kills></white>"
+    #   boss-bar: "<gold>⚔ <event></gold> <gray>·</gray> <white><time> left</white> <gray>·</gray> <red><mobs> mobs</red>"
+
+  # The events below use exact amounts. Archer and ravager counts are tuned to feel about as hard as
+  # 30 grunts: archers are fragile but shoot from range, ravagers are tanky and hit hard.
+  grunt_invasion:
+    name: "Grunt Invasion"
+    icon: ZOMBIE_HEAD
+    mode: fixed
+    duration-seconds: 600
+    roster:
+      - { profile: grunt, amount: 30 }
+    boss: none
+    warnings-seconds: [300, 60]
+    boss-bar-color: WHITE
+    leaderboard-size: 3
+
+  archer_invasion:
+    name: "Archer Invasion"
+    icon: BOW
+    mode: fixed
+    duration-seconds: 600
+    roster:
+      - { profile: archer, amount: 21 }
+    boss: none
+    warnings-seconds: [300, 60]
+    boss-bar-color: GREEN
+    leaderboard-size: 3
+
+  ravager_invasion:
+    name: "Ravager Invasion"
+    icon: IRON_AXE
+    mode: fixed
+    duration-seconds: 600
+    roster:
+      - { profile: ravager, amount: 12 }
+    boss: none
+    warnings-seconds: [300, 60]
+    boss-bar-color: RED
+    leaderboard-size: 3
+
+  # Miniboss battles: the boss spawns once alongside its escort.
+  dreadbound_battle:
+    name: "The Dreadbound Rises"
+    icon: WITHER_ROSE
+    mode: fixed
+    duration-seconds: 600
+    roster:
+      - { profile: grunt, amount: 8 }
+    boss: dreadbound
+    warnings-seconds: [300, 60]
+    boss-bar-color: PURPLE
+    leaderboard-size: 3
+
+  champion_battle:
+    name: "The Forsaken Champion"
+    icon: WITHER_SKELETON_SKULL
+    mode: fixed
+    duration-seconds: 900
+    roster:
+      - { profile: ravager, amount: 6 }
+    boss: champion
+    warnings-seconds: [600, 300, 60]
+    boss-bar-color: YELLOW
+    leaderboard-size: 3
