@@ -1,7 +1,7 @@
 # Every profile under `mobs` can be reused in any arena wave, and spawned on its own from
 # /femmobs gui -> Spawn mobs or /femmobs spawn <mob>.
 # After editing this file, run /femmobs reload.
-config-version: 4
+config-version: 5
 
 # Safety limit: reload fails if any wave would spawn more than this many mobs (1 to 500).
 # Each mob is scheduled independently for Folia safety, so raise it carefully.
@@ -215,6 +215,155 @@ mobs:
         particles: false
         icon: false
 
+  # ------------------------------------------------------------------ bosses
+  # A `boss:` section gives a mob abilities, particles, its own health bar and a death announcement.
+  # Ability types: slam, fireball, aura, summon, teleport, lightning. Common options:
+  #   cooldown (seconds), below-health (only below this % health; default 100 = always),
+  #   range (how far its target may be), radius (area size), damage, power, fire-seconds,
+  #   effect + level + duration (seconds), summon (mob profile) + count + max-alive,
+  #   min-range (fireball: only at targets at least this far), message (action bar for nearby players).
+  # Looks: scale (attribute) makes it bigger; armor can have `trim: { material, pattern }` and leather a
+  # `color: '#RRGGBB'`; blocks can be worn as helmets; glow-color colors the glowing outline (Paper only).
+  molten_warden:
+    entity-type: HUSK
+    name: "The Molten Warden"
+    name-color: gold
+    name-visible: true
+    persistent: true
+    glowing: true
+    glow-color: gold
+    scoreboard-tags: [forsaken.molten_warden]
+    attributes:
+      max-health: 260.0
+      attack-damage: 9.0
+      movement-speed: 0.25
+      knockback-resistance: 0.8
+      armor: 6.0
+      scale: 1.5
+    health: 260.0
+    equipment:
+      main-hand:
+        material: MACE
+        drop-chance: 0.0
+      helmet:
+        material: MAGMA_BLOCK
+        drop-chance: 0.0
+      chestplate:
+        material: NETHERITE_CHESTPLATE
+        trim: { material: gold, pattern: rib }
+        drop-chance: 0.0
+      leggings:
+        material: NETHERITE_LEGGINGS
+        trim: { material: gold, pattern: rib }
+        drop-chance: 0.0
+      boots:
+        material: NETHERITE_BOOTS
+        trim: { material: gold, pattern: rib }
+        drop-chance: 0.0
+    effects:
+      - { type: FIRE_RESISTANCE, amplifier: 0, duration-seconds: -1 }
+    boss:
+      health-bar: RED
+      particle: FLAME
+      particle-count: 4
+      death-message: "<gold>🔥 <yellow><killer></yellow> struck the final blow on <bold><mob></bold>!"
+      abilities:
+        - { type: slam, cooldown: 9, radius: 5, damage: 7, power: 1.0, fire-seconds: 4, message: "<gold><mob> slams the ground!" }
+        - { type: fireball, cooldown: 6, range: 20, min-range: 6, count: 3 }
+        - { type: aura, cooldown: 4, below-health: 50, radius: 4, fire-seconds: 3, damage: 2 }
+        - { type: summon, cooldown: 25, below-health: 50, summon: molten_spawn, count: 2, max-alive: 4, radius: 4, message: "<gold><mob> calls magma from the ground!" }
+
+  molten_spawn:
+    entity-type: MAGMA_CUBE
+    name: "Molten Spawn"
+    name-color: red
+    name-visible: false
+    persistent: true
+    slime-size: 2
+    scoreboard-tags: [forsaken.molten_spawn]
+    attributes:
+      max-health: 16.0
+      attack-damage: 4.0
+    health: 16.0
+    effects: []
+
+  cosmic_wraith:
+    entity-type: WITHER_SKELETON
+    name: "The Cosmic Wraith"
+    name-color: light_purple
+    name-visible: true
+    persistent: true
+    glowing: true
+    glow-color: dark_purple
+    scoreboard-tags: [forsaken.cosmic_wraith]
+    attributes:
+      max-health: 230.0
+      attack-damage: 8.0
+      movement-speed: 0.3
+      knockback-resistance: 0.4
+      armor: 8.0
+      scale: 1.25
+    health: 230.0
+    equipment:
+      main-hand:
+        material: NETHERITE_SWORD
+        drop-chance: 0.0
+      helmet:
+        material: PURPLE_STAINED_GLASS
+        drop-chance: 0.0
+      chestplate:
+        material: LEATHER_CHESTPLATE
+        color: '#2a0a4a'
+        trim: { material: amethyst, pattern: spire }
+        drop-chance: 0.0
+      leggings:
+        material: LEATHER_LEGGINGS
+        color: '#2a0a4a'
+        trim: { material: amethyst, pattern: spire }
+        drop-chance: 0.0
+      boots:
+        material: LEATHER_BOOTS
+        color: '#2a0a4a'
+        trim: { material: amethyst, pattern: spire }
+        drop-chance: 0.0
+    effects: []
+    boss:
+      health-bar: PURPLE
+      particle: END_ROD
+      particle-count: 3
+      death-message: "<light_purple>✦ <yellow><killer></yellow> banished <bold><mob></bold> back to the void!"
+      abilities:
+        - { type: teleport, cooldown: 8, range: 16, message: "<light_purple><mob> vanishes...</light_purple>" }
+        - { type: aura, cooldown: 12, radius: 6, effect: blindness, duration: 2 }
+        - { type: lightning, cooldown: 10, range: 18, damage: 5 }
+        - { type: aura, cooldown: 15, below-health: 60, radius: 6, effect: levitation, level: 1, duration: 1.5, message: "<light_purple>Gravity bends around <mob>!" }
+        - { type: summon, cooldown: 30, below-health: 30, summon: cosmic_shade, count: 2, max-alive: 2, radius: 3, message: "<light_purple><mob> splits into shadows!" }
+
+  cosmic_shade:
+    entity-type: WITHER_SKELETON
+    name: "Cosmic Shade"
+    name-color: dark_purple
+    name-visible: true
+    persistent: true
+    glowing: true
+    glow-color: dark_purple
+    scoreboard-tags: [forsaken.cosmic_shade]
+    attributes:
+      max-health: 30.0
+      attack-damage: 5.0
+      movement-speed: 0.32
+      scale: 0.9
+    health: 30.0
+    equipment:
+      main-hand:
+        material: STONE_SWORD
+        drop-chance: 0.0
+      helmet:
+        material: BLACK_STAINED_GLASS
+        drop-chance: 0.0
+    effects:
+      - { type: INVISIBILITY, amplifier: 0, duration-seconds: -1 }
+
 # Each key under `arenas` is an arena (or any other spawn area). Arenas are listed in the menu,
 # can run at the same time, and each has its own waves. Start one with /femmobs start <arena>.
 arenas:
@@ -321,6 +470,9 @@ events:
     # Event mobs glow (outline visible through blocks) so players can find them. Default true;
     # set false for an event where the mobs should be hidden.
     glowing: true
+    # After the event ends, unclaimed drops from regular mobs vanish after this many seconds (0 = keep).
+    # Drops from bosses are never removed.
+    drop-cleanup-seconds: 60
     # Optional message overrides in MiniMessage format. Placeholders: <event>, <location>
     # (rounded coordinates and biome), <time> (time left), <mobs> (mobs remaining), <radius>.
     # The leaderboard also has <entries>; each entry has <player> and <kills>.
@@ -347,6 +499,7 @@ events:
     warnings-seconds: [300, 60]
     boss-bar-color: WHITE
     leaderboard-size: 3
+    glowing: true
 
   archer_invasion:
     name: "Archer Invasion"
@@ -359,6 +512,7 @@ events:
     warnings-seconds: [300, 60]
     boss-bar-color: GREEN
     leaderboard-size: 3
+    glowing: true
 
   ravager_invasion:
     name: "Ravager Invasion"
@@ -371,6 +525,7 @@ events:
     warnings-seconds: [300, 60]
     boss-bar-color: RED
     leaderboard-size: 3
+    glowing: true
 
   # Miniboss battles: the boss spawns once alongside its escort.
   dreadbound_battle:
@@ -384,6 +539,7 @@ events:
     warnings-seconds: [300, 60]
     boss-bar-color: PURPLE
     leaderboard-size: 3
+    glowing: true
 
   champion_battle:
     name: "The Forsaken Champion"
@@ -396,3 +552,56 @@ events:
     warnings-seconds: [600, 300, 60]
     boss-bar-color: YELLOW
     leaderboard-size: 3
+    glowing: true
+
+  molten_warden_battle:
+    name: "The Molten Warden"
+    icon: MAGMA_BLOCK
+    mode: fixed
+    duration-seconds: 900
+    roster:
+      - { profile: grunt, amount: 6 }
+    boss: molten_warden
+    warnings-seconds: [600, 300, 60]
+    boss-bar-color: RED
+    leaderboard-size: 3
+    glowing: true
+
+  cosmic_wraith_battle:
+    name: "The Cosmic Wraith"
+    icon: END_CRYSTAL
+    mode: fixed
+    duration-seconds: 900
+    roster:
+      - { profile: archer, amount: 6 }
+    boss: cosmic_wraith
+    warnings-seconds: [600, 300, 60]
+    boss-bar-color: PURPLE
+    leaderboard-size: 3
+    glowing: true
+
+# Automatic events. When enabled, every `every-minutes` (give or take `random-minutes`) a random event
+# from `events` starts at a random spot min-distance to max-distance blocks from center-x/center-z,
+# and the announcement gives its exact coordinates. Skipped (retried 5 minutes later) when fewer than
+# min-players are online or another event is running. Test it with /femmobs event schedule now.
+event-schedule:
+  enabled: false
+  every-minutes: 180
+  random-minutes: 30
+  min-players: 3
+  world: world
+  center-x: 0
+  center-z: 0
+  min-distance: 200
+  max-distance: 500
+  radius: 30
+  # Relative chances (they don't have to add up to 100). 0 or leaving an event out = never scheduled.
+  events:
+    grunt_invasion: 35
+    archer_invasion: 30
+    invasion: 10
+    ravager_invasion: 10
+    dreadbound_battle: 6
+    champion_battle: 4
+    molten_warden_battle: 3
+    cosmic_wraith_battle: 2

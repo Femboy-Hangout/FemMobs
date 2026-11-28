@@ -21,9 +21,16 @@ import org.bukkit.Tag
 import org.bukkit.World
 import org.bukkit.command.CommandSender
 import org.bukkit.configuration.ConfigurationSection
+import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.entity.Entity
+import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
+import org.bukkit.event.entity.EntityDeathEvent
 import org.bukkit.event.entity.EntityTransformEvent
+import org.bukkit.event.entity.ItemMergeEvent
+import org.bukkit.potion.PotionEffect
+import org.bukkit.potion.PotionEffectType
+import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadLocalRandom
@@ -51,6 +58,7 @@ class EventMessages(
     val leaderboard: String,
     val leaderboardEntry: String,
     val bossBar: String,
+    val dropCleanup: String,
 )
 
 /** A server event template. Where it happens is chosen when it starts: around the player, with a radius. */
@@ -71,6 +79,8 @@ class EventSpec(
     val locationRounding: Int,
     /** Event mobs get the glowing outline so players can find them through walls and terrain. */
     val glowing: Boolean,
+    /** Seconds after the event ends before regular mobs' unclaimed drops are removed (0 = never). */
+    val dropCleanupSeconds: Int,
     val messages: EventMessages,
 ) {
     /** True when the roster lists exact amounts instead of weights. */
@@ -99,6 +109,7 @@ private val DEFAULT_MESSAGES = EventMessages(
     leaderboard = "<gold>🏆 Top hunters:</gold> <entries>",
     leaderboardEntry = "<yellow><player></yellow> <white><kills></white>",
     bossBar = "<gold>⚔ <event></gold> <gray>·</gray> <white><time> left</white> <gray>·</gray> <red><mobs> mobs</red>",
+    dropCleanup = "<gray>⚔ Leftover drops from <event> vanish in <seconds> seconds.",
 )
 
 fun loadEvent(key: String, section: ConfigurationSection, profiles: Map<String, MobProfile>, maxMobs: Int): EventSpec {
@@ -153,6 +164,7 @@ fun loadEvent(key: String, section: ConfigurationSection, profiles: Map<String, 
         leaderboardSize = section.getInt("leaderboard-size", 3).coerceIn(0, 10),
         locationRounding = section.getInt("location-rounding", 50).coerceIn(1, 1000),
         glowing = section.getBoolean("glowing", true),
+        dropCleanupSeconds = section.getInt("drop-cleanup-seconds", 60).coerceIn(0, 3600),
         messages = EventMessages(
             start = message("start", DEFAULT_MESSAGES.start),
             warning = message("warning", DEFAULT_MESSAGES.warning),
@@ -162,7 +174,55 @@ fun loadEvent(key: String, section: ConfigurationSection, profiles: Map<String, 
             leaderboard = message("leaderboard", DEFAULT_MESSAGES.leaderboard),
             leaderboardEntry = message("leaderboard-entry", DEFAULT_MESSAGES.leaderboardEntry),
             bossBar = message("boss-bar", DEFAULT_MESSAGES.bossBar),
+            dropCleanup = message("drop-cleanup", DEFAULT_MESSAGES.dropCleanup),
         ),
+    )
+}
+
+/** Automatic events: a weighted random event at a random spot a set distance from a center (usually 0 0). */
+class ScheduleSpec(
+    val enabled: Boolean,
+    val everyMinutes: Long,
+    val randomMinutes: Long,
+    val minPlayers: Int,
+    val world: String,
+    val centerX: Double,
+    val centerZ: Double,
+    val minDistance: Int,
+    val maxDistance: Int,
+    val radius: Int,
+    /** Event key to relative chance. */
+    val weights: Map<String, Int>,
+)
+
+fun loadSchedule(section: ConfigurationSection?, events: Map<String, EventSpec>, maxRadius: Int): ScheduleSpec {
+    val path = "event-schedule"
+    val weights = LinkedHashMap<String, Int>()
+    section?.getConfigurationSection("events")?.getKeys(false)?.forEach { key ->
+        require(key.lowercase() in events) { "$path.events.$key isn't an event under 'events'" }
+        val weight = section.getInt("events.$key")
+        require(weight >= 0) { "$path.events.$key must be 0 or more" }
+        if (weight > 0) weights[key.lowercase()] = weight
+    }
+    val minDistance = section?.getInt("min-distance", 200) ?: 200
+    val maxDistance = section?.getInt("max-distance", 500) ?: 500
+    require(minDistance in 0..30_000_000 && maxDistance >= minDistance) { "$path: max-distance must be at least min-distance" }
+    val radius = section?.getInt("radius", 30) ?: 30
+    require(radius in EventFeature.MIN_RADIUS..maxRadius) { "$path.radius must be between ${EventFeature.MIN_RADIUS} and max-event-radius ($maxRadius)" }
+    val enabled = section?.getBoolean("enabled", false) ?: false
+    require(!enabled || weights.isNotEmpty()) { "$path.events needs at least one event with a chance above 0" }
+    return ScheduleSpec(
+        enabled = enabled,
+        everyMinutes = (section?.getLong("every-minutes", 180) ?: 180).coerceIn(5, 10_080),
+        randomMinutes = (section?.getLong("random-minutes", 30) ?: 30).coerceIn(0, 1_440),
+        minPlayers = (section?.getInt("min-players", 3) ?: 3).coerceAtLeast(0),
+        world = section?.getString("world", "world") ?: "world",
+        centerX = section?.getDouble("center-x", 0.0) ?: 0.0,
+        centerZ = section?.getDouble("center-z", 0.0) ?: 0.0,
+        minDistance = minDistance,
+        maxDistance = maxDistance,
+        radius = radius,
+        weights = weights,
     )
 }
 
@@ -176,8 +236,12 @@ class EventFeature(private val plugin: FemMobsPlugin) {
     private inner class ActiveEvent(
         val spec: EventSpec, val world: World,
         val centerX: Double, val centerY: Double, val centerZ: Double,
-        val radius: Int, val locationText: String, val starter: UUID,
+        val radius: Int, val locationText: String, val starter: UUID?,
     ) {
+        /** The event's `boss:` mob(s); their drops are never cleaned up. */
+        val bossIds: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
+        /** Item entities dropped by this event's regular mobs, removed a while after the event ends. */
+        val droppedItems: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
         val tag = EVENT_TAG_PREFIX + UUID.randomUUID().toString().replace("-", "")
         val alive: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
         val pending = AtomicInteger(0)
@@ -198,7 +262,8 @@ class EventFeature(private val plugin: FemMobsPlugin) {
         @Volatile var task: ScheduledTask? = null
         @Volatile var secondsSinceRespawn = 0L
 
-        val secondsLeft: Long get() = ((endsAt - System.currentTimeMillis()) / 1000).coerceAtLeast(0)
+        // Rounded up, so a fresh 15-minute event says "15 minutes", not "14 min 59 s".
+        val secondsLeft: Long get() = ((endsAt - System.currentTimeMillis() + 999) / 1000).coerceAtLeast(0)
 
         /** Mobs still to deal with: alive plus any still spawning. */
         val remainingMobs: Int get() = alive.size + pending.get()
@@ -215,6 +280,10 @@ class EventFeature(private val plugin: FemMobsPlugin) {
 
     private val active = ConcurrentHashMap<String, ActiveEvent>()
     private val mini = MiniMessage.miniMessage()
+    private val scheduleFile = File(plugin.dataFolder, "schedule.yml")
+    @Volatile private var scheduleTask: ScheduledTask? = null
+    /** When the next automatic event is due (epoch millis); kept in schedule.yml across restarts. */
+    @Volatile private var nextScheduledAt = 0L
 
     val running: Collection<String> get() = active.values.map { "${it.spec.name}: ${humanTime(it.secondsLeft)} left, ${it.remainingMobs} mobs" }
 
@@ -237,6 +306,13 @@ class EventFeature(private val plugin: FemMobsPlugin) {
                 start(sender, StringArgumentType.getString(ctx, "event"), IntegerArgumentType.getInteger(ctx, "radius"))
                 1
             })))
+        .then(Commands.literal("schedule")
+            .executes { ctx -> scheduleInfo(ctx.source.sender); 1 }
+            .then(Commands.literal("now").executes { ctx ->
+                ctx.source.sender.sendMessage("Starting a scheduled event now (ignores enabled and min-players)...")
+                launchScheduled(ctx.source.sender, 0)
+                1
+            }))
         .then(Commands.literal("stop")
             .executes { ctx -> stop(ctx.source.sender, null); 1 }
             .then(Commands.argument("event", StringArgumentType.word()).suggests(eventSuggestions)
@@ -273,17 +349,118 @@ class EventFeature(private val plugin: FemMobsPlugin) {
             val roundedZ = (center.z / step).roundToInt() * step
             val locationText = "X $roundedX, Z $roundedZ" + if (biome.isNotEmpty()) " ($biome)" else ""
             Bukkit.getGlobalRegionScheduler().execute(plugin) {
-                if (active.containsKey(spec.key)) { plugin.tell(player, "${spec.name} is already running. Stop it first with /femmobs event stop ${spec.key}."); return@execute }
-                val event = ActiveEvent(spec, center.world, center.x, center.y, center.z, radius, locationText, player.uniqueId)
-                active[spec.key] = event
-                broadcast(mini.deserialize(spec.messages.start, event.resolver()))
-                plugin.tell(player, "Started ${spec.name} with a radius of $radius blocks around you.")
-                if (spec.exact) spec.roster.forEach { entry -> repeat(entry.amount!!) { queueSpawn(event, entry.profile) } }
-                else repeat(spec.mobs) { queueSpawn(event, spec.pickProfile()) }
-                spec.boss?.let { queueSpawn(event, it) }
-                event.task = Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, { tick(event) }, 20L, 20L)
+                if (launch(spec, center, radius, locationText, player.uniqueId)) {
+                    plugin.tell(player, "Started ${spec.name} with a radius of $radius blocks around you.")
+                } else {
+                    plugin.tell(player, "${spec.name} is already running. Stop it first with /femmobs event stop ${spec.key}.")
+                }
             }
         }, null)
+    }
+
+    /** Starts an event at [center]. Runs on the global region. Returns false if that event is already running. */
+    private fun launch(spec: EventSpec, center: Location, radius: Int, locationText: String, starter: UUID?): Boolean {
+        if (active.containsKey(spec.key)) return false
+        val event = ActiveEvent(spec, center.world, center.x, center.y, center.z, radius, locationText, starter)
+        active[spec.key] = event
+        broadcast(mini.deserialize(spec.messages.start, event.resolver()))
+        if (spec.exact) spec.roster.forEach { entry -> repeat(entry.amount!!) { queueSpawn(event, entry.profile) } }
+        else repeat(spec.mobs) { queueSpawn(event, spec.pickProfile()) }
+        spec.boss?.let { queueSpawn(event, it, boss = true) }
+        event.task = Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, { tick(event) }, 20L, 20L)
+        return true
+    }
+
+    // ---------------------------------------------------------------- automatic schedule
+
+    /** (Re)starts the schedule check after the config loads. */
+    fun applySchedule() {
+        scheduleTask?.cancel()
+        val schedule = plugin.schedule
+        val saved = runCatching { YamlConfiguration.loadConfiguration(scheduleFile).getLong("next-at", 0) }.getOrDefault(0)
+        val now = System.currentTimeMillis()
+        val longest = (schedule.everyMinutes + schedule.randomMinutes) * 60_000
+        nextScheduledAt = if (saved in (now + 1)..(now + longest)) saved else nextTime(schedule)
+        saveNextTime()
+        scheduleTask = Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, { checkSchedule() }, 20L * 30, 20L * 30)
+    }
+
+    private fun nextTime(schedule: ScheduleSpec): Long {
+        val jitter = if (schedule.randomMinutes > 0) ThreadLocalRandom.current().nextLong(-schedule.randomMinutes, schedule.randomMinutes + 1) else 0
+        return System.currentTimeMillis() + (schedule.everyMinutes + jitter).coerceAtLeast(5) * 60_000
+    }
+
+    private fun saveNextTime() {
+        runCatching { YamlConfiguration().apply { set("next-at", nextScheduledAt) }.save(scheduleFile) }
+    }
+
+    private fun checkSchedule() {
+        val schedule = plugin.schedule
+        if (!schedule.enabled || System.currentTimeMillis() < nextScheduledAt) return
+        if (Bukkit.getOnlinePlayers().size < schedule.minPlayers || active.isNotEmpty()) {
+            // Not now: too few players, or something is already running. Look again in 5 minutes.
+            nextScheduledAt = System.currentTimeMillis() + 5 * 60_000
+            saveNextTime()
+            return
+        }
+        nextScheduledAt = nextTime(schedule)
+        saveNextTime()
+        launchScheduled(null, 0)
+    }
+
+    private fun scheduleInfo(sender: CommandSender) {
+        val schedule = plugin.schedule
+        val total = schedule.weights.values.sum().coerceAtLeast(1)
+        val minutes = ((nextScheduledAt - System.currentTimeMillis()) / 60_000).coerceAtLeast(0)
+        listOf(
+            "Automatic events: ${if (schedule.enabled) "ENABLED" else "disabled (set event-schedule.enabled: true)"}",
+            "Every ${schedule.everyMinutes} min (±${schedule.randomMinutes}), next in about $minutes min, needs ${schedule.minPlayers}+ players online.",
+            "Where: ${schedule.minDistance}-${schedule.maxDistance} blocks from X ${schedule.centerX.roundToInt()}, Z ${schedule.centerZ.roundToInt()} in '${schedule.world}', radius ${schedule.radius}.",
+            "Chances: " + schedule.weights.entries.joinToString(", ") { (key, weight) -> "${plugin.eventSpecs[key]?.name ?: key} ${weight * 100 / total}%" },
+            "Test it now with /femmobs event schedule now",
+        ).forEach(sender::sendMessage)
+    }
+
+    /** Picks a weighted random event and open ground at a random spot, then starts it with exact coordinates. */
+    private fun launchScheduled(requester: CommandSender?, attempt: Int) {
+        val schedule = plugin.schedule
+        val world = Bukkit.getWorld(schedule.world)
+        val weights = schedule.weights.filterKeys { it in plugin.eventSpecs }
+        if (world == null || weights.isEmpty()) {
+            val reason = if (world == null) "world '${schedule.world}' isn't loaded" else "event-schedule.events has no events"
+            plugin.logger.warning("Scheduled event skipped: $reason.")
+            requester?.let { plugin.tell(it, "Can't start a scheduled event: $reason.") }
+            return
+        }
+        var roll = ThreadLocalRandom.current().nextInt(weights.values.sum())
+        val key = weights.entries.first { (_, weight) -> roll -= weight; roll < 0 }.key
+        val spec = plugin.eventSpecs.getValue(key)
+        val random = ThreadLocalRandom.current()
+        val angle = random.nextDouble(0.0, Math.PI * 2)
+        val distance = random.nextDouble(schedule.minDistance.toDouble(), schedule.maxDistance.toDouble() + 1)
+        val x = floor(schedule.centerX + cos(angle) * distance).toInt()
+        val z = floor(schedule.centerZ + sin(angle) * distance).toInt()
+        world.getChunkAtAsync(x shr 4, z shr 4).whenComplete { _, error ->
+            if (error != null) { retryScheduled(requester, attempt, "chunk load failed"); return@whenComplete }
+            Bukkit.getRegionScheduler().execute(plugin, world, x shr 4, z shr 4) {
+                val y = world.getHighestBlockYAt(x, z, HeightMap.MOTION_BLOCKING_NO_LEAVES)
+                if (!canStandOn(world, x, y, z)) { retryScheduled(requester, attempt, "no open ground (water or lava)"); return@execute }
+                val center = Location(world, x + 0.5, y + 1.0, z + 0.5)
+                val biome = runCatching { center.block.biome.key.key.split('_').joinToString(" ") { it.replaceFirstChar(Char::uppercase) } }.getOrDefault("")
+                val locationText = "X $x, Z $z" + if (biome.isNotEmpty()) " ($biome)" else ""
+                Bukkit.getGlobalRegionScheduler().execute(plugin) {
+                    val started = launch(spec, center, schedule.radius, locationText, null)
+                    plugin.logger.info(if (started) "Scheduled event ${spec.key} started at $locationText." else "Scheduled event ${spec.key} was already running.")
+                    requester?.let { plugin.tell(it, if (started) "Started ${spec.name} at $locationText." else "${spec.name} is already running.") }
+                }
+            }
+        }
+    }
+
+    private fun retryScheduled(requester: CommandSender?, attempt: Int, reason: String) {
+        if (attempt < 12) { launchScheduled(requester, attempt + 1); return }
+        plugin.logger.warning("Scheduled event skipped: couldn't find open ground after 12 tries ($reason).")
+        requester?.let { plugin.tell(it, "Couldn't find open ground for a scheduled event after 12 tries.") }
     }
 
     fun stop(sender: CommandSender, eventKey: String?) {
@@ -300,25 +477,26 @@ class EventFeature(private val plugin: FemMobsPlugin) {
 
     /** Plugin disable: no announcements; on Paper the mobs can be removed right away (Folia relies on load cleanup). */
     fun shutdown(folia: Boolean) {
+        scheduleTask?.cancel()
         active.values.toList().forEach { event ->
             event.active = false
             event.task?.cancel()
             hideBar(event)
-            if (!folia) event.alive.forEach { id -> Bukkit.getEntity(id)?.remove() }
+            if (!folia) (event.alive + event.droppedItems).forEach { id -> Bukkit.getEntity(id)?.remove() }
         }
         active.clear()
     }
 
     // ---------------------------------------------------------------- spawning
 
-    private fun queueSpawn(event: ActiveEvent, profile: MobProfile) {
+    private fun queueSpawn(event: ActiveEvent, profile: MobProfile, boss: Boolean = false) {
         event.pending.incrementAndGet()
         event.pendingByProfile.computeIfAbsent(profile.key) { AtomicInteger() }.incrementAndGet()
-        attemptSpawn(event, profile, 0)
+        attemptSpawn(event, profile, 0, boss)
     }
 
     /** Picks a random point, loads its chunk in the background, then spawns on the ground there (retrying elsewhere). */
-    private fun attemptSpawn(event: ActiveEvent, profile: MobProfile, attempt: Int) {
+    private fun attemptSpawn(event: ActiveEvent, profile: MobProfile, attempt: Int, boss: Boolean) {
         if (!event.active) { finishAttempt(event, profile); return }
         val random = ThreadLocalRandom.current()
         val angle = random.nextDouble(0.0, Math.PI * 2)
@@ -331,22 +509,23 @@ class EventFeature(private val plugin: FemMobsPlugin) {
         event.world.getChunkAtAsync(blockX shr 4, blockZ shr 4).whenComplete { _, error ->
             if (error != null) {
                 plugin.logger.log(Level.WARNING, "Could not load a chunk for ${event.spec.name}", error)
-                retryOrGiveUp(event, profile, attempt)
+                retryOrGiveUp(event, profile, attempt, boss)
                 return@whenComplete
             }
             Bukkit.getRegionScheduler().execute(plugin, event.world, blockX shr 4, blockZ shr 4) {
                 if (!event.active) { finishAttempt(event, profile); return@execute }
                 val spot = runCatching { groundSpot(event, blockX, blockZ) }.getOrNull()
-                if (spot == null) { retryOrGiveUp(event, profile, attempt); return@execute }
+                if (spot == null) { retryOrGiveUp(event, profile, attempt, boss); return@execute }
                 try {
-                    plugin.spawnProfile(profile, spot) { entity ->
+                    val mob = plugin.spawnProfile(profile, spot) { entity ->
                         entity.addScoreboardTag(event.tag)
                         entity.addScoreboardTag("femmobs.event.${event.spec.key}")
                         entity.removeWhenFarAway = false
-                        if (event.spec.glowing) entity.isGlowing = true
                         event.alive.add(entity.uniqueId)
                         event.profileOf[entity.uniqueId] = profile.key
                     }
+                    if (event.spec.glowing) makeGlow(mob)
+                    if (boss) event.bossIds.add(mob.uniqueId)
                     event.spawned.incrementAndGet()
                 } catch (failure: Throwable) {
                     plugin.logger.log(Level.WARNING, "Failed to spawn '${profile.key}' for ${event.spec.name}", failure)
@@ -356,8 +535,18 @@ class EventFeature(private val plugin: FemMobsPlugin) {
         }
     }
 
-    private fun retryOrGiveUp(event: ActiveEvent, profile: MobProfile, attempt: Int) {
-        if (event.active && attempt < MAX_SPAWN_ATTEMPTS) attemptSpawn(event, profile, attempt + 1) else finishAttempt(event, profile)
+    /**
+     * Two independent ways, applied after the mob is in the world: the glowing flag (set again one tick
+     * later in case anything reset it during spawning) and an infinite, hidden Glowing effect.
+     */
+    private fun makeGlow(mob: LivingEntity) {
+        mob.isGlowing = true
+        mob.addPotionEffect(PotionEffect(PotionEffectType.GLOWING, PotionEffect.INFINITE_DURATION, 0, false, false, false))
+        mob.scheduler.runDelayed(plugin, { if (mob.isValid) mob.isGlowing = true }, null, 1L)
+    }
+
+    private fun retryOrGiveUp(event: ActiveEvent, profile: MobProfile, attempt: Int, boss: Boolean) {
+        if (event.active && attempt < MAX_SPAWN_ATTEMPTS) attemptSpawn(event, profile, attempt + 1, boss) else finishAttempt(event, profile)
     }
 
     private fun finishAttempt(event: ActiveEvent, profile: MobProfile) {
@@ -457,10 +646,21 @@ class EventFeature(private val plugin: FemMobsPlugin) {
             EndReason.STOPPED -> broadcast(mini.deserialize(messages.endStopped, event.resolver()))
             EndReason.FAILED -> {
                 broadcast(mini.deserialize(messages.endStopped, event.resolver()))
-                Bukkit.getPlayer(event.starter)?.let { plugin.tell(it, "${event.spec.name} couldn't find any ground to spawn on within ${event.radius} blocks. Try somewhere more open or a bigger radius.") }
+                event.starter?.let(Bukkit::getPlayer)?.let { plugin.tell(it, "${event.spec.name} couldn't find any ground to spawn on within ${event.radius} blocks. Try somewhere more open or a bigger radius.") }
             }
         }
         if (reason != EndReason.FAILED) leaderboard(event)?.let(::broadcast)
+        scheduleDropCleanup(event)
+    }
+
+    private fun scheduleDropCleanup(event: ActiveEvent) {
+        val seconds = event.spec.dropCleanupSeconds
+        val drops = event.droppedItems.toList()
+        if (seconds <= 0 || drops.isEmpty()) return
+        broadcast(mini.deserialize(event.spec.messages.dropCleanup, event.resolver(Placeholder.unparsed("seconds", seconds.toString()))))
+        Bukkit.getGlobalRegionScheduler().runDelayed(plugin, {
+            drops.forEach { id -> Bukkit.getEntity(id)?.let { item -> item.scheduler.run(plugin, { item.remove() }, null) } }
+        }, seconds * 20L)
     }
 
     private fun leaderboard(event: ActiveEvent): Component? {
@@ -511,6 +711,41 @@ class EventFeature(private val plugin: FemMobsPlugin) {
         if (event.alive.isEmpty() && event.pending.get() == 0) Bukkit.getGlobalRegionScheduler().execute(plugin) { checkFinished(event) }
     }
 
+    /**
+     * Runs after other plugins (FemItems) added their loot. Drops of regular event mobs are re-dropped as
+     * tracked items so they can be cleaned up after the event; bosses' drops are left alone.
+     */
+    fun onDeathDrops(death: EntityDeathEvent) {
+        val entity = death.entity
+        val event = eventFor(entity) ?: return
+        if (event.spec.dropCleanupSeconds <= 0 || entity.uniqueId in event.bossIds || plugin.profileOf(entity)?.boss != null) return
+        val drops = death.drops.toList()
+        if (drops.isEmpty()) return
+        death.drops.clear()
+        drops.forEach { stack ->
+            entity.world.dropItemNaturally(entity.location, stack) { item ->
+                item.addScoreboardTag(DROP_TAG)
+                event.droppedItems.add(item.uniqueId)
+            }
+        }
+    }
+
+    /** Tracked drops never merge with other items, so cleanup can't take a player's own items with them. */
+    fun onItemMerge(merge: ItemMergeEvent) {
+        if (DROP_TAG in merge.entity.scoreboardTags || DROP_TAG in merge.target.scoreboardTags) merge.isCancelled = true
+    }
+
+    /** A boss in an event summoned a minion: it belongs to the same event. Returns false if the boss isn't in one. */
+    fun adopt(boss: Entity, minion: LivingEntity): Boolean {
+        val event = eventFor(boss) ?: return false
+        minion.addScoreboardTag(event.tag)
+        minion.addScoreboardTag("femmobs.event.${event.spec.key}")
+        minion.removeWhenFarAway = false
+        if (event.spec.glowing) makeGlow(minion)
+        event.alive.add(minion.uniqueId)
+        return true
+    }
+
     fun onTransform(transform: EntityTransformEvent) {
         val event = eventFor(transform.entity) ?: return
         if (transform.entity.uniqueId !in event.alive) return
@@ -525,6 +760,8 @@ class EventFeature(private val plugin: FemMobsPlugin) {
     companion object {
         /** Same prefix as arena runs, so the existing restart cleanup also removes leftover event mobs. */
         const val EVENT_TAG_PREFIX = "femmobs_"
+        /** Marks items dropped by regular event mobs (removed after the event). */
+        const val DROP_TAG = "femmobs.event_drop"
         const val MIN_RADIUS = 5
         private const val MIN_DISTANCE_FROM_CENTER = 3.0
         private const val MIN_DISTANCE_FROM_PLAYERS = 3.0

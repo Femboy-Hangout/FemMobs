@@ -5,6 +5,7 @@ import io.papermc.paper.registry.RegistryKey
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import net.kyori.adventure.text.format.TextColor
+import org.bukkit.Color
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
 import org.bukkit.Registry
@@ -15,6 +16,10 @@ import org.bukkit.entity.Ageable
 import org.bukkit.entity.EntityType
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Mob
+import org.bukkit.entity.Slime
+import org.bukkit.inventory.meta.ArmorMeta
+import org.bukkit.inventory.meta.LeatherArmorMeta
+import org.bukkit.inventory.meta.trim.ArmorTrim
 import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.ItemStack
 import org.bukkit.potion.PotionEffect
@@ -27,6 +32,10 @@ data class EquipmentSpec(
     val amount: Int,
     val enchantments: Map<Enchantment, Int>,
     val dropChance: Float,
+    /** Armor trim (both set or both null), e.g. material gold + pattern rib. */
+    val trim: ArmorTrim? = null,
+    /** Dye color for leather armor. */
+    val color: Color? = null,
 )
 
 data class EffectSpec(
@@ -58,6 +67,12 @@ data class MobProfile(
     val attributes: Map<Attribute, Double>,
     val equipment: List<EquipmentSpec>,
     val effects: List<EffectSpec>,
+    /** Slime / magma cube size (1 = small). */
+    val slimeSize: Int? = null,
+    /** Colored glowing outline (needs `glowing: true`); white when null. */
+    val glowColor: NamedTextColor? = null,
+    /** Boss behavior: abilities, particles, health bar, death message. */
+    val boss: BossSpec? = null,
 ) {
     fun applyTo(entity: LivingEntity, logger: Logger) {
         entity.customName(Component.text(name, nameColor))
@@ -75,6 +90,7 @@ data class MobProfile(
             it.setCanPickupItems(canPickupItems)
         }
         (entity as? Ageable)?.let { if (baby) it.setBaby() else it.setAdult() }
+        slimeSize?.let { size -> (entity as? Slime)?.size = size }
         tags.forEach(entity::addScoreboardTag)
 
         attributes.forEach { (attribute, value) ->
@@ -91,6 +107,12 @@ data class MobProfile(
         equipment.forEach { itemSpec ->
             val item = ItemStack(itemSpec.material, itemSpec.amount)
             itemSpec.enchantments.forEach { (enchantment, level) -> item.addUnsafeEnchantment(enchantment, level) }
+            if (itemSpec.trim != null || itemSpec.color != null) {
+                item.editMeta { meta ->
+                    if (itemSpec.trim != null) (meta as? ArmorMeta)?.trim = itemSpec.trim
+                    if (itemSpec.color != null) (meta as? LeatherArmorMeta)?.setColor(itemSpec.color)
+                }
+            }
             entity.equipment?.setItem(itemSpec.slot, item, true)
             entity.equipment?.setDropChance(itemSpec.slot, itemSpec.dropChance)
         }
@@ -163,8 +185,22 @@ fun loadMobProfile(key: String, section: ConfigurationSection): MobProfile {
                 ?: throw IllegalArgumentException("Unknown enchantment '$enchantName' in mobs.$key.$path")
             enchants[enchantment] = section.getInt("$path.enchantments.$enchantName")
         }
+        val trim = section.getConfigurationSection("$path.trim")?.let { trimSection ->
+            val materialKey = trimSection.getString("material") ?: throw IllegalArgumentException("Missing trim material in mobs.$key.$path.trim")
+            val patternKey = trimSection.getString("pattern") ?: throw IllegalArgumentException("Missing trim pattern in mobs.$key.$path.trim")
+            val trimMaterial = RegistryAccess.registryAccess().getRegistry(RegistryKey.TRIM_MATERIAL).get(namespaced(materialKey))
+                ?: throw IllegalArgumentException("Unknown trim material '$materialKey' in mobs.$key.$path.trim")
+            val trimPattern = RegistryAccess.registryAccess().getRegistry(RegistryKey.TRIM_PATTERN).get(namespaced(patternKey))
+                ?: throw IllegalArgumentException("Unknown trim pattern '$patternKey' in mobs.$key.$path.trim")
+            ArmorTrim(trimMaterial, trimPattern)
+        }
+        val dye = section.getString("$path.color")?.let { hex ->
+            val rgb = hex.removePrefix("#").toIntOrNull(16)?.takeIf { hex.removePrefix("#").length == 6 }
+                ?: throw IllegalArgumentException("Invalid color '$hex' in mobs.$key.$path.color (use #RRGGBB)")
+            Color.fromRGB(rgb)
+        }
         EquipmentSpec(slot, material, section.getInt("$path.amount", 1).coerceAtLeast(1), enchants,
-            section.getDouble("$path.drop-chance", 0.0).toFloat().coerceIn(0f, 1f))
+            section.getDouble("$path.drop-chance", 0.0).toFloat().coerceIn(0f, 1f), trim, dye)
     }
 
     val effects = section.getMapList("effects").mapIndexed { index, effectRow ->
@@ -216,8 +252,17 @@ fun loadMobProfile(key: String, section: ConfigurationSection): MobProfile {
         attributes = attrs,
         equipment = equipment,
         effects = effects,
+        slimeSize = if (section.contains("slime-size")) section.getInt("slime-size").coerceIn(1, 16) else null,
+        glowColor = section.getString("glow-color")?.let { name ->
+            NamedTextColor.NAMES.value(name.lowercase())
+                ?: throw IllegalArgumentException("Unknown glow-color '$name' in mobs.$key (use a named color like gold or dark_purple)")
+        },
+        boss = section.getConfigurationSection("boss")?.let { loadBossSpec("mobs.$key.boss", it) },
     )
 }
+
+internal fun namespaced(value: String): NamespacedKey =
+    NamespacedKey.fromString(value.lowercase()) ?: throw IllegalArgumentException("Invalid key '$value'")
 
 private inline fun <reified T : Enum<T>> enumValue(value: String?, path: String): T {
     val enumName = value ?: throw IllegalArgumentException("Missing required setting '$path'")

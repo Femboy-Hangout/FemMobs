@@ -4,7 +4,7 @@ FemMobs spawns configurable custom mobs on Paper and Folia 26.3: as waves in any
 
 ## Install
 
-1. Copy `build/libs/FemMobs-1.3.0.jar` into the server's `plugins` folder, removing any older FemMobs jar, and restart the server. PlugManX can't reliably reload Paper plugins (`paper-plugin.yml`): it may keep running the old code.
+1. Copy `build/libs/FemMobs-1.4.0.jar` into the server's `plugins` folder, removing any older FemMobs jar, and restart the server. PlugManX can't reliably reload Paper plugins (`paper-plugin.yml`): it may keep running the old code.
 2. Start the server once. FemMobs creates `plugins/FemMobs/config.yml`.
 3. Edit mob profiles, equipment, attributes, effects, arenas, and wave coordinates in that config.
 4. Run `/femmobs reload` to apply config changes. Reload stops every running arena first. If the new config has an error, the old one stays active and the error is shown.
@@ -33,6 +33,7 @@ To revoke access, set the node to `false` for that group or user. Players withou
 | `/femmobs spawn <mob> [amount]` | Spawns a mob profile (1 to 64 copies) a few blocks in front of you, facing you. |
 | `/femmobs event start <event> <radius>` | Starts a server event centered on you. Mobs spawn on the ground up to `<radius>` blocks away in every direction. See [Server events](#server-events). |
 | `/femmobs event stop [event]` | Ends one event, or every event without an argument, and removes its mobs. |
+| `/femmobs event schedule [now]` | Shows the automatic event schedule (enabled or not, next start, chances), or with `now` starts a scheduled event immediately for testing. |
 | `/femmobs event list` | Lists configured events and whether they're running. |
 | `/femmobs trader ...` | Builds, saves, and spawns custom villager and wandering traders. See [Custom traders](#custom-traders). |
 | `/femmobs status` | Lists running arenas and how many of their mobs remain. |
@@ -56,9 +57,12 @@ Edit `plugins/FemMobs/config.yml`. The bundled file documents all settings and c
 | `scoreboard-tags` | Tags added to each spawned entity. Include the matching FemItems `entity-tag` here. |
 | `attributes` | Any attribute supported by that entity, using names such as `max-health`, `attack-damage`, `movement-speed`, `knockback-resistance`, `armor`, and `armor-toughness`. |
 | `health` | Current health when spawned. If omitted, the mob starts at its configured max health. |
-| `equipment` | Optional `main-hand`, `off-hand`, `helmet`, `chestplate`, `leggings`, and `boots` items. Set `material`, optional `amount`, an `enchantments` map, and `drop-chance` (0 to 1) per slot. |
+| `equipment` | Armor pieces can also have `trim: { material: gold, pattern: rib }` and leather a `color: '#RRGGBB'`. Blocks (e.g. `MAGMA_BLOCK`) can be worn as helmets. Optional `main-hand`, `off-hand`, `helmet`, `chestplate`, `leggings`, and `boots` items. Set `material`, optional `amount`, an `enchantments` map, and `drop-chance` (0 to 1) per slot. |
 | `effects` | List of potion `type`, `amplifier`, `duration-seconds`, `ambient`, `particles`, and `icon`. A duration of `-1` is infinite. |
 | `invulnerable`, `glowing`, `silent`, `ai`, `can-pickup-items`, `fire-ticks` | Additional entity flags and initial fire duration. `ai` and pickup settings apply to mob entities. |
+| `slime-size` | Size for slimes and magma cubes (1 = small). |
+| `glow-color` | Colors the glowing outline (needs `glowing: true`), e.g. `gold`, `dark_purple`. Uses a scoreboard team; Folia has no scoreboard API, so there it stays white. |
+| `boss` | Turns the mob into a boss: abilities, particles, its own health bar, and a death announcement. See [Bosses](#bosses). |
 | `baby` | `true` spawns the baby form for mobs that have one (zombies, husks, piglins, animals). Default `false`. |
 
 Mobs spawn without vanilla's random spawn data: no random babies, chicken jockeys, or random armor and weapons. Only the profile's settings and equipment apply.
@@ -156,18 +160,46 @@ arenas:
 
 Profile names must match keys under `mobs`. If you change names, tags, or mob profiles, update the matching loot plugin configuration too.
 
+## Bosses
+
+Any mob profile can get a `boss:` section. The bundled config has two: **The Molten Warden** (a 1.5x husk in gold-trimmed netherite with a magma-block head and a mace) and **The Cosmic Wraith** (a wither skeleton in dark purple, amethyst-trimmed leather with a glass head). Both glow in their own color, leave particle trails, and show a health bar to players within 40 blocks (`health-bar-range`). When one dies, the server is told who landed the final blow (`death-message`, placeholders `<mob>` and `<killer>`).
+
+```yaml
+    boss:
+      health-bar: RED            # boss bar color, or none
+      particle: FLAME            # any Bukkit particle name
+      particle-count: 4
+      death-message: "<gold>🔥 <yellow><killer></yellow> struck the final blow on <bold><mob></bold>!"
+      abilities:
+        - { type: slam, cooldown: 9, radius: 5, damage: 7, power: 1.0, fire-seconds: 4, message: "<gold><mob> slams the ground!" }
+        - { type: summon, cooldown: 25, below-health: 50, summon: molten_spawn, count: 2, max-alive: 4 }
+```
+
+| Ability | What it does | Main options |
+| --- | --- | --- |
+| `slam` | Damages and knocks back every player within `radius`, optionally setting them on fire. | `radius`, `damage`, `power`, `fire-seconds` |
+| `fireball` | Shoots small fireballs at its target. | `count` (1 to 5, fanned out), `min-range` (only at targets at least this far) |
+| `aura` | Gives every player within `radius` a potion effect and/or fire and damage. | `effect`, `level`, `duration`, `fire-seconds`, `damage` |
+| `summon` | Spawns minions (any mob profile) around itself. Minions die with the boss and belong to the same event or arena run. | `summon`, `count`, `max-alive`, `radius` |
+| `teleport` | Teleports behind its target. | `range` |
+| `lightning` | Strikes its target with lightning. | `damage`, `fire-seconds` |
+
+Every ability has `cooldown` (seconds), `range` (how far its target may be, default 16), `below-health` (only used at or below this % of health, default 100) and an optional `message` shown in the action bar to nearby players. A boss uses at most one ability per half second, targeting the player it is fighting or the nearest survival/adventure player. Bosses work anywhere: events (`boss:` in an event), arena waves, and the spawn menu. They keep their behavior when their chunk unloads and reloads.
+
+Loot comes from FemItems: each boss has its own scoreboard tag (`forsaken.molten_warden`, `forsaken.cosmic_wraith`, and `forsaken.molten_spawn` / `forsaken.cosmic_shade` for minions) for FemItems drop rules.
+
 ## Server events
 
 An event spawns mobs around wherever you're standing, tells the whole server roughly where, and removes whatever is left when time runs out. Events are templates in `config.yml` under `events`; the place is chosen when you start one.
 
-Start one with `/femmobs event start invasion 15` (mobs spawn up to 15 blocks from you in every direction, a circle 30 blocks across) or from **/femmobs gui → Events**, which offers 10 to 150 block radii. The radius must be between 5 and `max-event-radius` (default 200). Each event can run once at a time; different events can run together.
+Start one with `/femmobs event start invasion 15` (mobs spawn up to 15 blocks from you in every direction, a circle 30 blocks across) or from **/femmobs gui â†’ Events**, which offers 10 to 150 block radii. The radius must be between 5 and `max-event-radius` (default 200). Each event can run once at a time; different events can run together.
 
 While an event runs:
 
 - **Spawning**: each mob goes to a random spot in the circle, on solid ground near your height (the surface, or open floor near you in caves and the Nether), never in water or lava, and at least 3 blocks from any player. Chunks load in the background first.
 - **Announcements** go to everyone: a start message with the rounded location and biome (e.g. *around X 1200, Z -2800 (Plains)*), time warnings, and an end message.
 - **Boss bar**: players within the circle (plus 16 blocks) see the event name, time left, and mobs remaining.
-- **End**: when time runs out, or, in `fixed` mode, as soon as every mob is killed. Remaining mobs are removed and a one-line leaderboard of the top killers is announced (`🏆 Top hunters: Lucy 14 · Max 9 · Sam 6`).
+- **End**: when time runs out, or, in `fixed` mode, as soon as every mob is killed. Remaining mobs are removed and a one-line leaderboard of the top killers is announced (`ðŸ† Top hunters: Lucy 14 Â· Max 9 Â· Sam 6`).
 
 Event fields:
 
@@ -186,7 +218,23 @@ Event fields:
 | `location-rounding` | Coordinates in messages are rounded to this many blocks (default 50). |
 | `messages` | Optional MiniMessage overrides for `start`, `warning`, `end-time`, `end-cleared`, `end-stopped`, `leaderboard`, `leaderboard-entry`, and `boss-bar`. Placeholders: `<event>`, `<location>`, `<time>`, `<mobs>`, `<radius>`; the leaderboard adds `<entries>`, `<player>`, `<kills>`. The bundled config lists the defaults. |
 
-Event mobs keep their profile tags (FemItems loot works) and also get `femmobs.event.<event>`, so FemItems can give event-only drops. They never despawn on their own while the event runs, and leftovers after a restart are removed by the same cleanup as arena mobs. Automatic scheduling isn't built yet; events start only by command or menu.
+Event mobs keep their profile tags (FemItems loot works) and also get `femmobs.event.<event>`, so FemItems can give event-only drops. They never despawn on their own while the event runs, and leftovers after a restart are removed by the same cleanup as arena mobs.
+
+**Drop cleanup.** Items dropped by an event's regular mobs (including FemItems loot) are tracked. When the event ends the server is told they vanish in `drop-cleanup-seconds` (default 60, `0` keeps them), and whatever nobody picked up is then removed. Drops from bosses (the event's `boss` and any mob with a `boss:` section) are never removed, and tracked drops never merge with other items, so players' own items are never touched.
+
+### Automatic events
+
+`event-schedule` starts events by itself. It is **disabled** by default; set `enabled: true` and run `/femmobs reload`.
+
+| Field | Meaning |
+| --- | --- |
+| `every-minutes`, `random-minutes` | Time between events, give or take a random amount (default 180 ± 30). The next start time survives restarts. |
+| `min-players` | Skip (and look again 5 minutes later) when fewer players are online (default 3). Also skipped while any event is running. |
+| `world`, `center-x`, `center-z`, `min-distance`, `max-distance` | Events start at a random spot this many blocks from the center (default 200 to 500 from 0 0 in `world`), on open ground (never water or lava). |
+| `radius` | Event radius for scheduled events (default 30). |
+| `events` | Relative chances per event key, e.g. `grunt_invasion: 35`, `cosmic_wraith_battle: 2`. |
+
+Scheduled events announce their **exact** coordinates and biome so players can head straight there. `/femmobs event schedule` shows the state, the next start, and each event's chance; `/femmobs event schedule now` starts one immediately (ignoring `enabled` and `min-players`) for testing.
 
 ## Custom traders
 

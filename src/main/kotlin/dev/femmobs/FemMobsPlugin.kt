@@ -16,16 +16,19 @@ import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.World
 import org.bukkit.command.CommandSender
+import org.bukkit.command.ConsoleCommandSender
 import org.bukkit.configuration.ConfigurationSection
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.entity.Entity
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
+import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.entity.EntityDeathEvent
 import org.bukkit.event.entity.EntityRemoveEvent
 import org.bukkit.event.entity.EntityTransformEvent
+import org.bukkit.event.entity.ItemMergeEvent
 import org.bukkit.event.inventory.InventoryClickEvent
 import org.bukkit.event.inventory.InventoryDragEvent
 import org.bukkit.event.world.EntitiesLoadEvent
@@ -47,6 +50,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         val spawnDistance: Double,
         val events: Map<String, EventSpec>,
         val maxEventRadius: Int,
+        val schedule: ScheduleSpec,
     )
 
     /** One active campaign or single menu wave in one arena. Several arenas may run at the same time. */
@@ -64,9 +68,27 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     private var ownsAdminPermission = false
     private lateinit var traders: TraderFeature
     private lateinit var events: EventFeature
+    private lateinit var bosses: BossFeature
 
     internal val eventSpecs: Map<String, EventSpec> get() = settings.events
     internal val maxEventRadius: Int get() = settings.maxEventRadius
+    internal val schedule: ScheduleSpec get() = settings.schedule
+
+    internal fun profileFor(key: String): MobProfile? = settings.profiles[key]
+
+    /** The profile a FemMobs mob was spawned from, via its `femmobs.profile.<key>` tag. */
+    internal fun profileOf(entity: Entity): MobProfile? = entity.scoreboardTags
+        .firstOrNull { it.startsWith(BossFeature.PROFILE_TAG_PREFIX) }
+        ?.let { settings.profiles[it.removePrefix(BossFeature.PROFILE_TAG_PREFIX)] }
+
+    /** A boss summoned [minion]: it joins the boss's event or arena run so it's tracked and cleaned up with it. */
+    internal fun adoptMinion(boss: Entity, minion: LivingEntity) {
+        if (events.adopt(boss, minion)) return
+        val run = runFor(boss) ?: return
+        minion.addScoreboardTag(run.tag)
+        minion.removeWhenFarAway = false
+        run.alive.add(minion.uniqueId)
+    }
 
     override fun onEnable() {
         saveDefaultConfig()
@@ -75,6 +97,8 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         traders = TraderFeature(this, dataFolder)
         traders.load()
         events = EventFeature(this)
+        bosses = BossFeature(this)
+        events.applySchedule()
         server.pluginManager.registerEvents(this, this)
         server.pluginManager.registerEvents(traders, this)
         val adminPermission = server.pluginManager.getPermission(PERMISSION)
@@ -95,6 +119,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         if (::traders.isInitialized) traders.clearDrafts()
         val folia = isFolia()
         if (::events.isInitialized) events.shutdown(folia)
+        if (::bosses.isInitialized) bosses.shutdown()
         runs.values.toList().forEach { run ->
             endRun(run)
             // On Paper the disabling thread owns every entity, so mobs can be removed now. Folia forbids
@@ -112,7 +137,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     // ---------------------------------------------------------------- commands
 
     private fun buildCommand() = Commands.literal("femmobs")
-        .requires { source -> source.sender.hasPermission(PERMISSION) }
+        .requires { source -> isAdmin(source.sender) }
         .then(Commands.literal("start")
             .executes { ctx -> start(ctx.sender, null) }
             .then(Commands.argument("arena", StringArgumentType.word()).suggests(arenaSuggestions)
@@ -139,6 +164,9 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         .build()
 
     private val CommandContext<CommandSourceStack>.sender: CommandSender get() = source.sender
+
+    /** femmobs.admin defaults to false (grant it with LuckPerms); the server console is always allowed. */
+    private fun isAdmin(sender: CommandSender) = sender is ConsoleCommandSender || sender.hasPermission(PERMISSION)
 
     private val arenaSuggestions = SuggestionProvider<CommandSourceStack> { _, builder ->
         settings.arenas.keys.filter { it.startsWith(builder.remainingLowerCase) }.forEach(builder::suggest)
@@ -210,6 +238,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
                 migrateConfigIfNeeded()
                 settings = loadSettings()
                 traders.load()
+                events.applySchedule()
                 val note = if (stopped.isEmpty()) "" else " Stopped ${stopped.size} running arena(s) first."
                 tell(sender, "FemMobs reloaded: ${settings.profiles.size} mob profiles, ${settings.arenas.size} arenas, ${settings.events.size} events, ${traders.count} traders.$note")
             } catch (e: Exception) {
@@ -245,6 +274,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
             "/femmobs stop [arena] - stop one arena (or all) and remove the wave mobs it spawned.",
             "/femmobs spawn <mob> [amount] - spawn a mob profile a few blocks in front of you.",
             "/femmobs event start <event> <radius> - start a server event: mobs spawn within <radius> blocks of you, announced to everyone, removed when time runs out.",
+            "/femmobs event schedule [now] - show the automatic event schedule, or start a scheduled event right away to test it.",
             "/femmobs event stop [event] - end one (or every) event early and remove its mobs. /femmobs event list shows all events.",
             "/femmobs trader - build custom villager/wandering traders in chat, then spawn them (see /femmobs trader).",
             "/femmobs status - show running arenas and how many mobs remain.",
@@ -264,6 +294,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
             if (!config.contains("max-mobs-per-wave", true)) { config.set("max-mobs-per-wave", 100); changed = true }
             if (!config.contains("spawn-menu.distance", true)) { config.set("spawn-menu.distance", 3.0); changed = true }
             if (addEventsIfMissing()) changed = true
+            if (addVersion5Content()) changed = true
             if (changed) saveConfigFile()
             return
         }
@@ -291,6 +322,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         config.set("max-mobs-per-wave", maxMobs)
         config.set("spawn-menu.distance", 3.0)
         addEventsIfMissing()
+        addVersion5Content()
         saveConfigFile()
         logger.info("Updated FemMobs config to version 3 (multiple arenas). Your previous arena is now 'arenas.forsaken'.")
     }
@@ -304,6 +336,32 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         copySection(bundled.getConfigurationSection("events")!!, config.createSection("events"))
         config.set("config-version", 4)
         logger.info("Added the example server event 'invasion' to config.yml (config version 4).")
+        return true
+    }
+
+    /**
+     * Version 5 added bosses and the event schedule. Adds bundled mob profiles and events whose names don't
+     * exist yet (existing ones are never changed) and the disabled `event-schedule` section. Runs once.
+     */
+    private fun addVersion5Content(): Boolean {
+        if (config.getInt("config-version", 0) >= 5) return false
+        val bundled = YamlConfiguration()
+        getResource("config.yml")!!.bufferedReader().use { bundled.load(it) }
+        val added = mutableListOf<String>()
+        for (sectionName in listOf("mobs", "events")) {
+            val from = bundled.getConfigurationSection(sectionName) ?: continue
+            val to = config.getConfigurationSection(sectionName) ?: config.createSection(sectionName)
+            from.getKeys(false).filter { !to.contains(it, true) }.forEach { key ->
+                copySection(from.getConfigurationSection(key)!!, to.createSection(key))
+                added += "$sectionName.$key"
+            }
+        }
+        if (!config.contains("event-schedule", true)) {
+            copySection(bundled.getConfigurationSection("event-schedule")!!, config.createSection("event-schedule"))
+            added += "event-schedule (disabled)"
+        }
+        config.set("config-version", 5)
+        logger.info("Updated config to version 5. Added: ${added.joinToString(", ").ifEmpty { "nothing new" }}.")
         return true
     }
 
@@ -391,7 +449,13 @@ class FemMobsPlugin : JavaPlugin(), Listener {
                 ?: throw IllegalArgumentException("events.$key must be a configuration section")
             events[key.lowercase()] = loadEvent(key.lowercase(), section, profiles, maxMobsPerWave)
         }
-        return Settings(profiles, arenas, maxMobsPerWave, spawnDistance, events, maxEventRadius)
+        profiles.values.forEach { profile ->
+            profile.boss?.abilities?.mapNotNull { it.summon }?.forEach { summon ->
+                require(summon in profiles) { "mobs.${profile.key}.boss summons unknown mob profile '$summon'" }
+            }
+        }
+        val schedule = loadSchedule(config.getConfigurationSection("event-schedule"), events, maxEventRadius)
+        return Settings(profiles, arenas, maxMobsPerWave, spawnDistance, events, maxEventRadius, schedule)
     }
 
     private fun loadArena(arenaKey: String, section: ConfigurationSection, profiles: Map<String, MobProfile>, maxMobsPerWave: Int): ArenaSpec {
@@ -581,7 +645,16 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     fun onDeath(event: EntityDeathEvent) {
         release(event.entity)
         events.onDeath(event.entity, event.entity.killer)
+        bosses.onDeath(event.entity, event.entity.killer)
+        bosses.releaseGlow(event.entity)
     }
+
+    /** After every other plugin (FemItems loot) has added its drops. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onDeathDrops(event: EntityDeathEvent) = events.onDeathDrops(event)
+
+    @EventHandler(ignoreCancelled = true)
+    fun onItemMerge(event: ItemMergeEvent) = events.onItemMerge(event)
 
     /** Despawns, void falls, /kill and other removals also count as the mob being gone; chunk unloads do not. */
     @EventHandler
@@ -589,6 +662,8 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         if (event.cause == EntityRemoveEvent.Cause.UNLOAD) return
         release(event.entity)
         events.onGone(event.entity)
+        bosses.onGone(event.entity)
+        bosses.releaseGlow(event.entity)
     }
 
     /** A wave mob that converts (husk to zombie, zombie to drowned, ...) keeps counting for its wave. */
@@ -605,7 +680,13 @@ class FemMobsPlugin : JavaPlugin(), Listener {
 
     @EventHandler
     fun onEntitiesLoad(event: EntitiesLoadEvent) {
-        event.entities.filter(::isOrphan).forEach { entity -> entity.scheduler.run(this, { entity.remove() }, null) }
+        event.entities.forEach { entity ->
+            if (isOrphan(entity)) entity.scheduler.run(this, { entity.remove() }, null)
+            // Bosses lose their behavior task when their chunk unloads; restore it when it loads again.
+            else if (entity is LivingEntity) profileOf(entity)?.takeIf { it.boss != null || it.glowColor != null }?.let { profile ->
+                entity.scheduler.run(this, { bosses.attach(entity, profile) }, null)
+            }
+        }
     }
 
     /** Removes orphaned wave mobs near every online player, each on the thread that owns that player. */
@@ -637,10 +718,13 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         val type = profile.entityType.entityClass as Class<LivingEntity>
         // randomizeData = false skips vanilla spawn randomization (random babies, chicken jockeys,
         // random armor and weapons), so the profile alone decides how the mob looks.
-        return location.world.spawn(location, type, false) { entity ->
+        val entity = location.world.spawn(location, type, false) { entity ->
             profile.applyTo(entity, logger)
+            entity.addScoreboardTag(BossFeature.PROFILE_TAG_PREFIX + profile.key)
             extra(entity)
         }
+        bosses.attach(entity, profile)
+        return entity
     }
 
     /** Spawns a profile a few blocks in front of the player, facing them. Not tied to any arena run. */
