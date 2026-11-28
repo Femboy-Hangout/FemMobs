@@ -340,11 +340,13 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     }
 
     /**
-     * Version 5 added bosses and the event schedule. Adds bundled mob profiles and events whose names don't
-     * exist yet (existing ones are never changed) and the disabled `event-schedule` section. Runs once.
+     * Versions 5 and 6 added bosses and the event schedule. Adds bundled mob profiles and events whose names
+     * don't exist yet, the disabled `event-schedule` section and chances for new scheduled events, and the
+     * health-bar `boss` section to the Dreadbound and Champion if they have none. Nothing else that already
+     * exists is changed. Runs once per version.
      */
     private fun addVersion5Content(): Boolean {
-        if (config.getInt("config-version", 0) >= 5) return false
+        if (config.getInt("config-version", 0) >= CONFIG_VERSION) return false
         val bundled = YamlConfiguration()
         getResource("config.yml")!!.bufferedReader().use { bundled.load(it) }
         val added = mutableListOf<String>()
@@ -359,9 +361,22 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         if (!config.contains("event-schedule", true)) {
             copySection(bundled.getConfigurationSection("event-schedule")!!, config.createSection("event-schedule"))
             added += "event-schedule (disabled)"
+        } else {
+            val weights = config.getConfigurationSection("event-schedule.events") ?: config.createSection("event-schedule.events")
+            bundled.getConfigurationSection("event-schedule.events")?.getKeys(false)
+                ?.filter { it in NEW_SCHEDULED_EVENTS && !weights.contains(it, true) }
+                ?.forEach { key -> weights.set(key, bundled.getInt("event-schedule.events.$key")); added += "event-schedule.events.$key" }
         }
-        config.set("config-version", 5)
-        logger.info("Updated config to version 5. Added: ${added.joinToString(", ").ifEmpty { "nothing new" }}.")
+        for (key in listOf("dreadbound", "champion")) {
+            val profile = config.getConfigurationSection("mobs.$key") ?: continue
+            val bossSection = bundled.getConfigurationSection("mobs.$key.boss") ?: continue
+            if (!profile.contains("boss", true)) {
+                copySection(bossSection, profile.createSection("boss"))
+                added += "mobs.$key.boss (health bar)"
+            }
+        }
+        config.set("config-version", CONFIG_VERSION)
+        logger.info("Updated config to version $CONFIG_VERSION. Added: ${added.joinToString(", ").ifEmpty { "nothing new" }}.")
         return true
     }
 
@@ -947,6 +962,9 @@ class FemMobsPlugin : JavaPlugin(), Listener {
 
     private companion object {
         const val PERMISSION = "femmobs.admin"
+        const val CONFIG_VERSION = 6
+        /** Events whose schedule chances are added to existing configs on upgrade. */
+        val NEW_SCHEDULED_EVENTS = setOf("molten_warden_battle", "cosmic_wraith_battle", "reaper_battle", "frost_battle", "storm_battle")
         /** Prefix of the per-run scoreboard tag on wave mobs; unchanged from earlier versions so old leftovers are found. */
         const val RUN_TAG_PREFIX = "femmobs_"
         /** Marks mobs spawned from the mob menu or /femmobs spawn. They are not tracked or cleaned up. */

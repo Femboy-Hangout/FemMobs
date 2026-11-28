@@ -31,7 +31,7 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-enum class AbilityType { SLAM, FIREBALL, AURA, SUMMON, TELEPORT, LIGHTNING }
+enum class AbilityType { SLAM, FIREBALL, AURA, SUMMON, TELEPORT, LIGHTNING, EMPOWER }
 
 /** One boss ability. Unused options are ignored by the types that don't need them. */
 class AbilitySpec(
@@ -55,6 +55,10 @@ class AbilitySpec(
     val minRange: Double,
     /** Optional action-bar text shown to nearby players when the ability fires. */
     val message: String?,
+    /** Overrides the ability's particle (slam, aura). */
+    val particle: Particle?,
+    /** Powder-snow freezing applied to hit players (slam, aura, lightning). */
+    val freezeSeconds: Int,
 )
 
 class BossSpec(
@@ -79,7 +83,7 @@ fun loadBossSpec(path: String, section: ConfigurationSection): BossSpec {
         fun int(key: String, default: Int) = row[key]?.toString()?.toIntOrNull() ?: default
         val type = row["type"]?.toString()?.let { name ->
             runCatching { AbilityType.valueOf(name.uppercase()) }.getOrElse {
-                throw IllegalArgumentException("Unknown ability type '$name' at $at (slam, fireball, aura, summon, teleport, lightning)")
+                throw IllegalArgumentException("Unknown ability type '$name' at $at (slam, fireball, aura, summon, teleport, lightning, empower)")
             }
         } ?: throw IllegalArgumentException("Missing ability type at $at")
         val effect = row["effect"]?.toString()?.let { name ->
@@ -87,7 +91,11 @@ fun loadBossSpec(path: String, section: ConfigurationSection): BossSpec {
                 ?: throw IllegalArgumentException("Unknown effect '$name' at $at")
         }
         if (type == AbilityType.SUMMON) require(row["summon"] != null) { "summon ability needs a 'summon' mob profile at $at" }
-        if (type == AbilityType.AURA) require(effect != null || int("fire-seconds", 0) > 0) { "aura ability needs an effect or fire-seconds at $at" }
+        if (type == AbilityType.AURA) require(effect != null || int("fire-seconds", 0) > 0 || int("freeze-seconds", 0) > 0) { "aura ability needs an effect, fire-seconds or freeze-seconds at $at" }
+        if (type == AbilityType.EMPOWER) require(effect != null) { "empower ability needs an effect (given to the boss itself) at $at" }
+        val abilityParticle = row["particle"]?.toString()?.let { name ->
+            runCatching { Particle.valueOf(name.uppercase()) }.getOrElse { throw IllegalArgumentException("Unknown particle '$name' at $at") }
+        }
         AbilitySpec(
             type = type,
             cooldownTicks = (num("cooldown", 10.0) * 20).roundToInt().coerceAtLeast(10),
@@ -105,6 +113,8 @@ fun loadBossSpec(path: String, section: ConfigurationSection): BossSpec {
             maxSummons = int("max-alive", 4).coerceIn(1, 30),
             minRange = num("min-range", 0.0).coerceAtLeast(0.0),
             message = row["message"]?.toString(),
+            particle = abilityParticle,
+            freezeSeconds = int("freeze-seconds", 0).coerceIn(0, 30),
         )
     }
     return BossSpec(
@@ -229,14 +239,14 @@ class BossFeature(private val plugin: FemMobsPlugin) {
                 val hit = nearbyPlayers(boss, ability.radius)
                 if (hit.isEmpty()) return false
                 world.spawnParticle(Particle.EXPLOSION, boss.location, 3, 1.0, 0.2, 1.0, 0.0)
-                world.spawnParticle(Particle.LAVA, boss.location, 20, ability.radius / 2, 0.2, ability.radius / 2, 0.0)
+                world.spawnParticle(ability.particle ?: Particle.LAVA, boss.location, 30, ability.radius / 2, 0.2, ability.radius / 2, 0.02)
                 world.playSound(boss.location, Sound.ENTITY_GENERIC_EXPLODE, 1f, 0.7f)
                 hit.forEach { player ->
                     if (ability.damage > 0) player.damage(ability.damage, boss)
                     val away = player.location.toVector().subtract(boss.location.toVector()).setY(0)
                     val push = (if (away.lengthSquared() < 0.01) Vector(0.0, 0.0, 0.0) else away.normalize().multiply(ability.power * 0.8))
                     player.velocity = push.setY(0.35 + ability.power * 0.35)
-                    if (ability.fireSeconds > 0) player.fireTicks = maxOf(player.fireTicks, ability.fireSeconds * 20)
+                    applyExtras(player, ability)
                 }
                 true
             }
@@ -254,11 +264,10 @@ class BossFeature(private val plugin: FemMobsPlugin) {
             AbilityType.AURA -> {
                 val hit = nearbyPlayers(boss, ability.radius)
                 if (hit.isEmpty()) return false
-                world.spawnParticle(ability.effect?.let { Particle.WITCH } ?: Particle.FLAME, boss.location.add(0.0, 1.0, 0.0), 40, ability.radius / 2, 0.6, ability.radius / 2, 0.02)
+                world.spawnParticle(ability.particle ?: ability.effect?.let { Particle.WITCH } ?: Particle.FLAME, boss.location.add(0.0, 1.0, 0.0), 40, ability.radius / 2, 0.6, ability.radius / 2, 0.02)
                 world.playSound(boss.location, Sound.ENTITY_EVOKER_CAST_SPELL, 1f, 0.6f)
                 hit.forEach { player ->
-                    ability.effect?.let { player.addPotionEffect(PotionEffect(it, ability.durationTicks, ability.level - 1)) }
-                    if (ability.fireSeconds > 0) player.fireTicks = maxOf(player.fireTicks, ability.fireSeconds * 20)
+                    applyExtras(player, ability)
                     if (ability.damage > 0) player.damage(ability.damage, boss)
                 }
                 true
@@ -295,10 +304,26 @@ class BossFeature(private val plugin: FemMobsPlugin) {
             AbilityType.LIGHTNING -> {
                 world.strikeLightningEffect(target.location)
                 if (ability.damage > 0) target.damage(ability.damage, boss)
-                if (ability.fireSeconds > 0) target.fireTicks = maxOf(target.fireTicks, ability.fireSeconds * 20)
+                applyExtras(target, ability)
+                true
+            }
+            AbilityType.EMPOWER -> {
+                val effect = ability.effect!!
+                if (boss.hasPotionEffect(effect)) return false
+                boss.addPotionEffect(PotionEffect(effect, ability.durationTicks, ability.level - 1, false, true, false))
+                world.spawnParticle(ability.particle ?: Particle.ANGRY_VILLAGER, boss.location.add(0.0, boss.height, 0.0), 8, 0.4, 0.3, 0.4, 0.0)
+                world.playSound(boss.location, Sound.ENTITY_RAVAGER_ROAR, 1f, 1.2f)
                 true
             }
         }
+    }
+
+    /** Effect, fire and freezing that slam, aura and lightning put on the players they hit. */
+    private fun applyExtras(player: Player, ability: AbilitySpec) {
+        ability.effect?.let { player.addPotionEffect(PotionEffect(it, ability.durationTicks, ability.level - 1)) }
+        if (ability.fireSeconds > 0) player.fireTicks = maxOf(player.fireTicks, ability.fireSeconds * 20)
+        // Freeze ticks thaw 2 per tick outside powder snow, so this keeps the player fully frozen for about freeze-seconds.
+        if (ability.freezeSeconds > 0) player.freezeTicks = maxOf(player.freezeTicks, player.maxFreezeTicks + ability.freezeSeconds * 40)
     }
 
     /** The boss's current player target if it's in range, otherwise the nearest fightable player. */

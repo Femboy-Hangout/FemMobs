@@ -4,7 +4,7 @@ FemMobs spawns configurable custom mobs on Paper and Folia 26.3: as waves in any
 
 ## Install
 
-1. Copy `build/libs/FemMobs-1.4.0.jar` into the server's `plugins` folder, removing any older FemMobs jar, and restart the server. PlugManX can't reliably reload Paper plugins (`paper-plugin.yml`): it may keep running the old code.
+1. Copy `build/libs/FemMobs-1.5.0.jar` into the server's `plugins` folder, removing any older FemMobs jar, and restart the server. PlugManX can't reliably reload Paper plugins (`paper-plugin.yml`): it may keep running the old code.
 2. Start the server once. FemMobs creates `plugins/FemMobs/config.yml`.
 3. Edit mob profiles, equipment, attributes, effects, arenas, and wave coordinates in that config.
 4. Run `/femmobs reload` to apply config changes. Reload stops every running arena first. If the new config has an error, the old one stays active and the error is shown.
@@ -162,7 +162,17 @@ Profile names must match keys under `mobs`. If you change names, tags, or mob pr
 
 ## Bosses
 
-Any mob profile can get a `boss:` section. The bundled config has two: **The Molten Warden** (a 1.5x husk in gold-trimmed netherite with a magma-block head and a mace) and **The Cosmic Wraith** (a wither skeleton in dark purple, amethyst-trimmed leather with a glass head). Both glow in their own color, leave particle trails, and show a health bar to players within 40 blocks (`health-bar-range`). When one dies, the server is told who landed the final blow (`death-message`, placeholders `<mob>` and `<killer>`).
+Any mob profile can get a `boss:` section. The bundled bosses, each with a 15-minute battle event:
+
+| Boss | Look | Fights with |
+| --- | --- | --- |
+| **The Molten Warden** | 1.5x husk, gold-trimmed netherite, magma-block head, mace | Fire slam, fireball spreads; below 50% a fire aura and Molten Spawn magma cubes |
+| **The Cosmic Wraith** | Wither skeleton, purple amethyst-trimmed leather, glass head | Teleports behind you, blindness, lightning; levitation below 60%, two invisible Cosmic Shades below 30% |
+| **The Hollow Reaper** | 1.5x skeleton in black leather, netherite hoe as a scythe | Wither and darkness auras, a slowing slam; Lost Soul vexes below 70% |
+| **The Frost Jarl** | 1.6x stray, diamond-trimmed iron, blue-ice head, diamond axe | Freezing slam, slowness and blizzard auras; Frost Wisp archers below 50% |
+| **The Storm Ronin** | Fast zombie, copper bolt-trimmed chainmail, lightning-rod head, netherite sword | Lightning, dashes behind you, a knockback slam; Speed II below 50% |
+
+The Dreadbound and the Champion have a `boss:` section too, for their health bar and kill announcement, but no abilities, so they fight as before. Both glow in their own color, leave particle trails, and show a health bar to players within 40 blocks (`health-bar-range`). When one dies, the server is told who landed the final blow (`death-message`, placeholders `<mob>` and `<killer>`).
 
 ```yaml
     boss:
@@ -183,10 +193,11 @@ Any mob profile can get a `boss:` section. The bundled config has two: **The Mol
 | `summon` | Spawns minions (any mob profile) around itself. Minions die with the boss and belong to the same event or arena run. | `summon`, `count`, `max-alive`, `radius` |
 | `teleport` | Teleports behind its target. | `range` |
 | `lightning` | Strikes its target with lightning. | `damage`, `fire-seconds` |
+| `empower` | Gives the boss itself a potion effect (e.g. Speed) while it lasts. | `effect`, `level`, `duration` |
 
-Every ability has `cooldown` (seconds), `range` (how far its target may be, default 16), `below-health` (only used at or below this % of health, default 100) and an optional `message` shown in the action bar to nearby players. A boss uses at most one ability per half second, targeting the player it is fighting or the nearest survival/adventure player. Bosses work anywhere: events (`boss:` in an event), arena waves, and the spawn menu. They keep their behavior when their chunk unloads and reloads.
+Every ability has `cooldown` (seconds), `range` (how far its target may be, default 16), `below-health` (only used at or below this % of health, default 100) and an optional `message` shown in the action bar to nearby players. `slam`, `aura` and `lightning` can also apply an `effect`, `fire-seconds` and `freeze-seconds` (powder-snow freezing) to the players they hit, and `particle` changes an ability's look. A boss uses at most one ability per half second, targeting the player it is fighting or the nearest survival/adventure player. Bosses work anywhere: events (`boss:` in an event), arena waves, and the spawn menu. They keep their behavior when their chunk unloads and reloads.
 
-Loot comes from FemItems: each boss has its own scoreboard tag (`forsaken.molten_warden`, `forsaken.cosmic_wraith`, and `forsaken.molten_spawn` / `forsaken.cosmic_shade` for minions) for FemItems drop rules.
+Loot comes from FemItems: each boss and minion has its own scoreboard tag (`forsaken.<profile>`, e.g. `forsaken.frost_jarl`, `forsaken.lost_soul`) for FemItems drop rules.
 
 ## Server events
 

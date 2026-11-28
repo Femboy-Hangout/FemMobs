@@ -1,7 +1,7 @@
 # Every profile under `mobs` can be reused in any arena wave, and spawned on its own from
 # /femmobs gui -> Spawn mobs or /femmobs spawn <mob>.
 # After editing this file, run /femmobs reload.
-config-version: 5
+config-version: 6
 
 # Safety limit: reload fails if any wave would spawn more than this many mobs (1 to 500).
 # Each mob is scheduled independently for Folia safety, so raise it carefully.
@@ -144,6 +144,13 @@ mobs:
     name-visible: true
     persistent: true
     scoreboard-tags: [forsaken.dreadbound]
+    # Health bar, smoke trail and a kill announcement; no abilities, so it fights as before.
+    boss:
+      health-bar: PURPLE
+      particle: SMOKE
+      particle-count: 2
+      death-message: "<dark_purple>⚔ <yellow><killer></yellow> defeated <bold><mob></bold>!"
+      abilities: []
     attributes:
       max-health: 94.0
       attack-damage: 7.0
@@ -185,6 +192,12 @@ mobs:
     name-visible: true
     persistent: true
     scoreboard-tags: [forsaken.champion]
+    boss:
+      health-bar: YELLOW
+      particle: CRIT
+      particle-count: 2
+      death-message: "<gold>⚔ <yellow><killer></yellow> has slain <bold><mob></bold>!"
+      abilities: []
     attributes:
       max-health: 215.0
       attack-damage: 10.5
@@ -217,11 +230,12 @@ mobs:
 
   # ------------------------------------------------------------------ bosses
   # A `boss:` section gives a mob abilities, particles, its own health bar and a death announcement.
-  # Ability types: slam, fireball, aura, summon, teleport, lightning. Common options:
+  # Ability types: slam, fireball, aura, summon, teleport, lightning, empower (buffs the boss itself). Common options:
   #   cooldown (seconds), below-health (only below this % health; default 100 = always),
   #   range (how far its target may be), radius (area size), damage, power, fire-seconds,
   #   effect + level + duration (seconds), summon (mob profile) + count + max-alive,
-  #   min-range (fireball: only at targets at least this far), message (action bar for nearby players).
+  #   min-range (fireball: only at targets at least this far), message (action bar for nearby players),
+  #   particle (slam/aura/empower look), freeze-seconds (powder-snow freezing on hit players).
   # Looks: scale (attribute) makes it bigger; armor can have `trim: { material, pattern }` and leather a
   # `color: '#RRGGBB'`; blocks can be worn as helmets; glow-color colors the glowing outline (Paper only).
   molten_warden:
@@ -363,6 +377,190 @@ mobs:
         drop-chance: 0.0
     effects:
       - { type: INVISIBILITY, amplifier: 0, duration-seconds: -1 }
+
+  # Reaper: a scythe-wielding skeleton that withers and drains the fight out of players.
+  hollow_reaper:
+    entity-type: SKELETON
+    name: "The Hollow Reaper"
+    name-color: dark_gray
+    name-visible: true
+    persistent: true
+    glowing: true
+    glow-color: dark_gray
+    scoreboard-tags: [forsaken.hollow_reaper]
+    attributes:
+      max-health: 240.0
+      attack-damage: 13.0
+      movement-speed: 0.27
+      knockback-resistance: 0.5
+      armor: 8.0
+      scale: 1.5
+    health: 240.0
+    equipment:
+      main-hand:
+        material: NETHERITE_HOE
+        drop-chance: 0.0
+      helmet:
+        material: LEATHER_HELMET
+        color: '#141414'
+        trim: { material: netherite, pattern: silence }
+        drop-chance: 0.0
+      chestplate:
+        material: LEATHER_CHESTPLATE
+        color: '#141414'
+        trim: { material: netherite, pattern: silence }
+        drop-chance: 0.0
+      leggings:
+        material: LEATHER_LEGGINGS
+        color: '#141414'
+        drop-chance: 0.0
+      boots:
+        material: LEATHER_BOOTS
+        color: '#141414'
+        drop-chance: 0.0
+    effects: []
+    boss:
+      health-bar: WHITE
+      particle: SOUL
+      particle-count: 3
+      death-message: "<gray>☠ <yellow><killer></yellow> sent <bold><mob></bold> back to the grave!"
+      abilities:
+        - { type: aura, cooldown: 10, radius: 5, effect: wither, level: 2, duration: 5, particle: SOUL, message: "<gray><mob> drains the life around it..." }
+        - { type: aura, cooldown: 20, radius: 8, effect: darkness, duration: 6, particle: SCULK_SOUL }
+        - { type: slam, cooldown: 12, radius: 4, damage: 6, power: 0.4, effect: slowness, level: 2, duration: 3, particle: SOUL_FIRE_FLAME }
+        - { type: summon, cooldown: 25, below-health: 70, summon: lost_soul, count: 3, max-alive: 3, radius: 3, message: "<gray>Lost souls answer <mob>'s call!" }
+
+  lost_soul:
+    entity-type: VEX
+    name: "Lost Soul"
+    name-color: gray
+    name-visible: false
+    persistent: true
+    scoreboard-tags: [forsaken.lost_soul]
+    attributes:
+      max-health: 14.0
+      attack-damage: 4.0
+    health: 14.0
+    effects: []
+
+  # Frost: a huge, slow stray with an axe that freezes and slows everyone near it.
+  frost_jarl:
+    entity-type: STRAY
+    name: "The Frost Jarl"
+    name-color: aqua
+    name-visible: true
+    persistent: true
+    glowing: true
+    glow-color: aqua
+    scoreboard-tags: [forsaken.frost_jarl]
+    attributes:
+      max-health: 270.0
+      attack-damage: 8.0
+      movement-speed: 0.23
+      knockback-resistance: 0.9
+      armor: 10.0
+      scale: 1.6
+    health: 270.0
+    equipment:
+      main-hand:
+        material: DIAMOND_AXE
+        drop-chance: 0.0
+      helmet:
+        material: BLUE_ICE
+        drop-chance: 0.0
+      chestplate:
+        material: IRON_CHESTPLATE
+        trim: { material: diamond, pattern: ward }
+        drop-chance: 0.0
+      leggings:
+        material: IRON_LEGGINGS
+        trim: { material: diamond, pattern: ward }
+        drop-chance: 0.0
+      boots:
+        material: IRON_BOOTS
+        trim: { material: diamond, pattern: ward }
+        drop-chance: 0.0
+    effects: []
+    boss:
+      health-bar: BLUE
+      particle: SNOWFLAKE
+      particle-count: 5
+      death-message: "<aqua>❄ <yellow><killer></yellow> shattered <bold><mob></bold>!"
+      abilities:
+        - { type: slam, cooldown: 9, radius: 5, damage: 6, power: 0.8, freeze-seconds: 3, particle: SNOWFLAKE, message: "<aqua><mob> shatters the ground with ice!" }
+        - { type: aura, cooldown: 12, radius: 6, effect: slowness, level: 3, duration: 3, particle: SNOWFLAKE }
+        - { type: aura, cooldown: 18, below-health: 60, radius: 6, effect: mining_fatigue, level: 2, duration: 6, freeze-seconds: 2, particle: ITEM_SNOWBALL, message: "<aqua>A blizzard surrounds <mob>!" }
+        - { type: summon, cooldown: 30, below-health: 50, summon: frost_wisp, count: 2, max-alive: 4, radius: 4 }
+
+  frost_wisp:
+    entity-type: STRAY
+    name: "Frost Wisp"
+    name-color: aqua
+    name-visible: true
+    persistent: true
+    scoreboard-tags: [forsaken.frost_wisp]
+    attributes:
+      max-health: 20.0
+      movement-speed: 0.26
+    health: 20.0
+    equipment:
+      main-hand:
+        material: BOW
+        drop-chance: 0.0
+      helmet:
+        material: LEATHER_HELMET
+        color: '#bfe8ff'
+        drop-chance: 0.0
+    effects: []
+
+  # Storm: a fast duelist with a blade that calls lightning and dashes behind its target.
+  storm_ronin:
+    entity-type: ZOMBIE
+    name: "The Storm Ronin"
+    name-color: yellow
+    name-visible: true
+    persistent: true
+    glowing: true
+    glow-color: yellow
+    scoreboard-tags: [forsaken.storm_ronin]
+    attributes:
+      max-health: 220.0
+      attack-damage: 8.0
+      movement-speed: 0.33
+      knockback-resistance: 0.3
+      armor: 6.0
+      scale: 1.2
+    health: 220.0
+    equipment:
+      main-hand:
+        material: NETHERITE_SWORD
+        drop-chance: 0.0
+      helmet:
+        material: LIGHTNING_ROD
+        drop-chance: 0.0
+      chestplate:
+        material: CHAINMAIL_CHESTPLATE
+        trim: { material: copper, pattern: bolt }
+        drop-chance: 0.0
+      leggings:
+        material: CHAINMAIL_LEGGINGS
+        trim: { material: copper, pattern: bolt }
+        drop-chance: 0.0
+      boots:
+        material: CHAINMAIL_BOOTS
+        trim: { material: copper, pattern: bolt }
+        drop-chance: 0.0
+    effects: []
+    boss:
+      health-bar: YELLOW
+      particle: ELECTRIC_SPARK
+      particle-count: 5
+      death-message: "<yellow>⚡ <white><killer></white> outdueled <bold><mob></bold>!"
+      abilities:
+        - { type: lightning, cooldown: 6, range: 20, damage: 5 }
+        - { type: teleport, cooldown: 9, range: 14, message: "<yellow><mob> flashes behind you!" }
+        - { type: slam, cooldown: 11, radius: 4, damage: 5, power: 1.4, particle: ELECTRIC_SPARK }
+        - { type: empower, cooldown: 25, below-health: 50, effect: speed, level: 2, duration: 8, particle: ELECTRIC_SPARK, message: "<yellow><mob> crackles with energy!" }
 
 # Each key under `arenas` is an arena (or any other spawn area). Arenas are listed in the menu,
 # can run at the same time, and each has its own waves. Start one with /femmobs start <arena>.
@@ -580,6 +778,45 @@ events:
     leaderboard-size: 3
     glowing: true
 
+  reaper_battle:
+    name: "The Hollow Reaper"
+    icon: WITHER_SKELETON_SKULL
+    mode: fixed
+    duration-seconds: 900
+    roster:
+      - { profile: grunt, amount: 6 }
+    boss: hollow_reaper
+    warnings-seconds: [600, 300, 60]
+    boss-bar-color: WHITE
+    leaderboard-size: 3
+    glowing: true
+
+  frost_battle:
+    name: "The Frost Jarl"
+    icon: BLUE_ICE
+    mode: fixed
+    duration-seconds: 900
+    roster:
+      - { profile: archer, amount: 6 }
+    boss: frost_jarl
+    warnings-seconds: [600, 300, 60]
+    boss-bar-color: BLUE
+    leaderboard-size: 3
+    glowing: true
+
+  storm_battle:
+    name: "The Storm Ronin"
+    icon: LIGHTNING_ROD
+    mode: fixed
+    duration-seconds: 900
+    roster:
+      - { profile: ravager, amount: 4 }
+    boss: storm_ronin
+    warnings-seconds: [600, 300, 60]
+    boss-bar-color: YELLOW
+    leaderboard-size: 3
+    glowing: true
+
 # Automatic events. When enabled, every `every-minutes` (give or take `random-minutes`) a random event
 # from `events` starts at a random spot min-distance to max-distance blocks from center-x/center-z,
 # and the announcement gives its exact coordinates. Skipped (retried 5 minutes later) when fewer than
@@ -605,3 +842,6 @@ event-schedule:
     champion_battle: 4
     molten_warden_battle: 3
     cosmic_wraith_battle: 2
+    reaper_battle: 2
+    frost_battle: 2
+    storm_battle: 2
