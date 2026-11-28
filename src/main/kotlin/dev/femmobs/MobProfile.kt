@@ -73,6 +73,8 @@ data class MobProfile(
     val glowColor: NamedTextColor? = null,
     /** Boss behavior: abilities, particles, health bar, death message. */
     val boss: BossSpec? = null,
+    /** Experience dropped on death; null keeps the vanilla amount. */
+    val xp: Int? = null,
 ) {
     fun applyTo(entity: LivingEntity, logger: Logger) {
         entity.customName(Component.text(name, nameColor))
@@ -258,6 +260,7 @@ fun loadMobProfile(key: String, section: ConfigurationSection): MobProfile {
                 ?: throw IllegalArgumentException("Unknown glow-color '$name' in mobs.$key (use a named color like gold or dark_purple)")
         },
         boss = section.getConfigurationSection("boss")?.let { loadBossSpec("mobs.$key.boss", it) },
+        xp = if (section.contains("xp")) section.getInt("xp").coerceIn(0, 100_000) else null,
     )
 }
 

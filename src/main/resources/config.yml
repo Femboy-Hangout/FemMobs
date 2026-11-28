@@ -1,7 +1,7 @@
 # Every profile under `mobs` can be reused in any arena wave, and spawned on its own from
 # /femmobs gui -> Spawn mobs or /femmobs spawn <mob>.
 # After editing this file, run /femmobs reload.
-config-version: 6
+config-version: 7
 
 # Safety limit: reload fails if any wave would spawn more than this many mobs (1 to 500).
 # Each mob is scheduled independently for Folia safety, so raise it carefully.
@@ -23,6 +23,8 @@ mobs:
     # icon: ZOMBIE_HEAD
     # true: never despawns naturally and is saved with the chunk. Arena wave mobs never despawn either way.
     persistent: true
+    # Experience dropped on death (vanilla zombies drop 5).
+    xp: 10
     # Optional: true spawns the baby form for mobs that have one. Defaults to false (always adult).
     # baby: false
     # These exact scoreboard tags are read by FemItems for custom drops.
@@ -74,6 +76,7 @@ mobs:
     name-color: green
     name-visible: true
     persistent: true
+    xp: 10
     scoreboard-tags: [forsaken.archer]
     attributes:
       max-health: 26.0
@@ -108,6 +111,7 @@ mobs:
     name-color: dark_red
     name-visible: true
     persistent: true
+    xp: 25
     scoreboard-tags: [forsaken.ravager]
     attributes:
       max-health: 55.0
@@ -143,6 +147,7 @@ mobs:
     name-color: dark_purple
     name-visible: true
     persistent: true
+    xp: 80
     scoreboard-tags: [forsaken.dreadbound]
     # Health bar, smoke trail and a kill announcement; no abilities, so it fights as before.
     boss:
@@ -191,6 +196,7 @@ mobs:
     name-color: gold
     name-visible: true
     persistent: true
+    xp: 150
     scoreboard-tags: [forsaken.champion]
     boss:
       health-bar: YELLOW
@@ -244,6 +250,7 @@ mobs:
     name-color: gold
     name-visible: true
     persistent: true
+    xp: 250
     glowing: true
     glow-color: gold
     scoreboard-tags: [forsaken.molten_warden]
@@ -293,6 +300,7 @@ mobs:
     name-color: red
     name-visible: false
     persistent: true
+    xp: 5
     slime-size: 2
     scoreboard-tags: [forsaken.molten_spawn]
     attributes:
@@ -307,6 +315,7 @@ mobs:
     name-color: light_purple
     name-visible: true
     persistent: true
+    xp: 250
     glowing: true
     glow-color: dark_purple
     scoreboard-tags: [forsaken.cosmic_wraith]
@@ -359,6 +368,7 @@ mobs:
     name-color: dark_purple
     name-visible: true
     persistent: true
+    xp: 5
     glowing: true
     glow-color: dark_purple
     scoreboard-tags: [forsaken.cosmic_shade]
@@ -385,6 +395,7 @@ mobs:
     name-color: dark_gray
     name-visible: true
     persistent: true
+    xp: 250
     glowing: true
     glow-color: dark_gray
     scoreboard-tags: [forsaken.hollow_reaper]
@@ -436,6 +447,7 @@ mobs:
     name-color: gray
     name-visible: false
     persistent: true
+    xp: 5
     scoreboard-tags: [forsaken.lost_soul]
     attributes:
       max-health: 14.0
@@ -450,6 +462,7 @@ mobs:
     name-color: aqua
     name-visible: true
     persistent: true
+    xp: 250
     glowing: true
     glow-color: aqua
     scoreboard-tags: [forsaken.frost_jarl]
@@ -498,6 +511,7 @@ mobs:
     name-color: aqua
     name-visible: true
     persistent: true
+    xp: 5
     scoreboard-tags: [forsaken.frost_wisp]
     attributes:
       max-health: 20.0
@@ -520,6 +534,7 @@ mobs:
     name-color: yellow
     name-visible: true
     persistent: true
+    xp: 250
     glowing: true
     glow-color: yellow
     scoreboard-tags: [forsaken.storm_ronin]
@@ -663,6 +678,12 @@ events:
     boss-bar-color: RED
     # How many top killers the end message lists (0 hides it).
     leaderboard-size: 3
+    # Console commands for everyone who damaged the event's mobs, when the event is won (cleared, or
+    # survived in keep-population mode) and at least min-players took part. <player> = their name.
+    rewards:
+      min-players: 2
+      everyone: ["give <player> minecraft:emerald 3", "xp add <player> 3 levels"]
+      top: ["give <player> minecraft:diamond 1"]
     # Coordinates in messages are rounded to this many blocks, so they give a general area.
     location-rounding: 50
     # Event mobs glow (outline visible through blocks) so players can find them. Default true;
@@ -697,6 +718,10 @@ events:
     warnings-seconds: [300, 60]
     boss-bar-color: WHITE
     leaderboard-size: 3
+    rewards:
+      min-players: 2
+      everyone: ["give <player> minecraft:emerald 3", "xp add <player> 3 levels"]
+      top: ["give <player> minecraft:diamond 1"]
     glowing: true
 
   archer_invasion:
@@ -710,6 +735,10 @@ events:
     warnings-seconds: [300, 60]
     boss-bar-color: GREEN
     leaderboard-size: 3
+    rewards:
+      min-players: 2
+      everyone: ["give <player> minecraft:emerald 3", "xp add <player> 3 levels"]
+      top: ["give <player> minecraft:diamond 1"]
     glowing: true
 
   ravager_invasion:
@@ -723,6 +752,10 @@ events:
     warnings-seconds: [300, 60]
     boss-bar-color: RED
     leaderboard-size: 3
+    rewards:
+      min-players: 2
+      everyone: ["give <player> minecraft:emerald 3", "xp add <player> 3 levels"]
+      top: ["give <player> minecraft:diamond 1"]
     glowing: true
 
   # Miniboss battles: the boss spawns once alongside its escort.
@@ -737,6 +770,10 @@ events:
     warnings-seconds: [300, 60]
     boss-bar-color: PURPLE
     leaderboard-size: 3
+    rewards:
+      min-players: 2
+      everyone: ["give <player> minecraft:diamond 1", "xp add <player> 4 levels"]
+      top: ["give <player> minecraft:golden_apple 1"]
     glowing: true
 
   champion_battle:
@@ -750,6 +787,10 @@ events:
     warnings-seconds: [600, 300, 60]
     boss-bar-color: YELLOW
     leaderboard-size: 3
+    rewards:
+      min-players: 2
+      everyone: ["give <player> minecraft:diamond 1", "xp add <player> 4 levels"]
+      top: ["give <player> minecraft:golden_apple 1"]
     glowing: true
 
   molten_warden_battle:
@@ -758,11 +799,16 @@ events:
     mode: fixed
     duration-seconds: 900
     roster:
-      - { profile: grunt, amount: 6 }
+      - { profile: grunt, amount: 8 }
+      - { profile: ravager, amount: 2 }
     boss: molten_warden
     warnings-seconds: [600, 300, 60]
     boss-bar-color: RED
     leaderboard-size: 3
+    rewards:
+      min-players: 2
+      everyone: ["give <player> minecraft:diamond 2", "xp add <player> 5 levels"]
+      top: ["give <player> minecraft:netherite_scrap 1"]
     glowing: true
 
   cosmic_wraith_battle:
@@ -772,10 +818,15 @@ events:
     duration-seconds: 900
     roster:
       - { profile: archer, amount: 6 }
+      - { profile: grunt, amount: 4 }
     boss: cosmic_wraith
     warnings-seconds: [600, 300, 60]
     boss-bar-color: PURPLE
     leaderboard-size: 3
+    rewards:
+      min-players: 2
+      everyone: ["give <player> minecraft:diamond 2", "xp add <player> 5 levels"]
+      top: ["give <player> minecraft:netherite_scrap 1"]
     glowing: true
 
   reaper_battle:
@@ -784,11 +835,16 @@ events:
     mode: fixed
     duration-seconds: 900
     roster:
-      - { profile: grunt, amount: 6 }
+      - { profile: grunt, amount: 8 }
+      - { profile: archer, amount: 3 }
     boss: hollow_reaper
     warnings-seconds: [600, 300, 60]
     boss-bar-color: WHITE
     leaderboard-size: 3
+    rewards:
+      min-players: 2
+      everyone: ["give <player> minecraft:diamond 2", "xp add <player> 5 levels"]
+      top: ["give <player> minecraft:netherite_scrap 1"]
     glowing: true
 
   frost_battle:
@@ -798,10 +854,15 @@ events:
     duration-seconds: 900
     roster:
       - { profile: archer, amount: 6 }
+      - { profile: grunt, amount: 4 }
     boss: frost_jarl
     warnings-seconds: [600, 300, 60]
     boss-bar-color: BLUE
     leaderboard-size: 3
+    rewards:
+      min-players: 2
+      everyone: ["give <player> minecraft:diamond 2", "xp add <player> 5 levels"]
+      top: ["give <player> minecraft:netherite_scrap 1"]
     glowing: true
 
   storm_battle:
@@ -811,10 +872,15 @@ events:
     duration-seconds: 900
     roster:
       - { profile: ravager, amount: 4 }
+      - { profile: grunt, amount: 4 }
     boss: storm_ronin
     warnings-seconds: [600, 300, 60]
     boss-bar-color: YELLOW
     leaderboard-size: 3
+    rewards:
+      min-players: 2
+      everyone: ["give <player> minecraft:diamond 2", "xp add <player> 5 levels"]
+      top: ["give <player> minecraft:netherite_scrap 1"]
     glowing: true
 
 # Automatic events. When enabled, every `every-minutes` (give or take `random-minutes`) a random event
@@ -823,8 +889,8 @@ events:
 # min-players are online or another event is running. Test it with /femmobs event schedule now.
 event-schedule:
   enabled: false
-  every-minutes: 180
-  random-minutes: 30
+  every-minutes: 60
+  random-minutes: 10
   min-players: 3
   world: world
   center-x: 0

@@ -59,6 +59,17 @@ class EventMessages(
     val leaderboardEntry: String,
     val bossBar: String,
     val dropCleanup: String,
+    val rewards: String,
+    val rewardsSolo: String,
+)
+
+/** Console commands run for players who took part in a won event. `<player>` is replaced with their name. */
+class EventRewards(
+    /** Rewards are only given when at least this many players dealt damage to the event's mobs. */
+    val minPlayers: Int,
+    val everyone: List<String>,
+    /** Extra commands for the player with the most kills. */
+    val top: List<String>,
 )
 
 /** A server event template. Where it happens is chosen when it starts: around the player, with a radius. */
@@ -81,6 +92,7 @@ class EventSpec(
     val glowing: Boolean,
     /** Seconds after the event ends before regular mobs' unclaimed drops are removed (0 = never). */
     val dropCleanupSeconds: Int,
+    val rewards: EventRewards?,
     val messages: EventMessages,
 ) {
     /** True when the roster lists exact amounts instead of weights. */
@@ -110,6 +122,8 @@ private val DEFAULT_MESSAGES = EventMessages(
     leaderboardEntry = "<yellow><player></yellow> <white><kills></white>",
     bossBar = "<gold>⚔ <event></gold> <gray>·</gray> <white><time> left</white> <gray>·</gray> <red><mobs> mobs</red>",
     dropCleanup = "<gray>⚔ Leftover drops from <event> vanish in <seconds> seconds.",
+    rewards = "<gold>🎁 <count> players earned rewards for <event>! <yellow><player></yellow> got the top hunter bonus.",
+    rewardsSolo = "<gray>⚔ <event> was cleared solo: participation rewards need at least <min> players.",
 )
 
 fun loadEvent(key: String, section: ConfigurationSection, profiles: Map<String, MobProfile>, maxMobs: Int): EventSpec {
@@ -165,6 +179,13 @@ fun loadEvent(key: String, section: ConfigurationSection, profiles: Map<String, 
         locationRounding = section.getInt("location-rounding", 50).coerceIn(1, 1000),
         glowing = section.getBoolean("glowing", true),
         dropCleanupSeconds = section.getInt("drop-cleanup-seconds", 60).coerceIn(0, 3600),
+        rewards = section.getConfigurationSection("rewards")?.let { rewards ->
+            EventRewards(
+                minPlayers = rewards.getInt("min-players", 2).coerceAtLeast(1),
+                everyone = rewards.getStringList("everyone").map { it.removePrefix("/") },
+                top = rewards.getStringList("top").map { it.removePrefix("/") },
+            )
+        }?.takeIf { it.everyone.isNotEmpty() || it.top.isNotEmpty() },
         messages = EventMessages(
             start = message("start", DEFAULT_MESSAGES.start),
             warning = message("warning", DEFAULT_MESSAGES.warning),
@@ -175,6 +196,8 @@ fun loadEvent(key: String, section: ConfigurationSection, profiles: Map<String, 
             leaderboardEntry = message("leaderboard-entry", DEFAULT_MESSAGES.leaderboardEntry),
             bossBar = message("boss-bar", DEFAULT_MESSAGES.bossBar),
             dropCleanup = message("drop-cleanup", DEFAULT_MESSAGES.dropCleanup),
+            rewards = message("rewards", DEFAULT_MESSAGES.rewards),
+            rewardsSolo = message("rewards-solo", DEFAULT_MESSAGES.rewardsSolo),
         ),
     )
 }
@@ -242,6 +265,8 @@ class EventFeature(private val plugin: FemMobsPlugin) {
         val bossIds: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
         /** Item entities dropped by this event's regular mobs, removed a while after the event ends. */
         val droppedItems: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
+        /** Players who dealt damage to this event's mobs, with their latest names. */
+        val participants = ConcurrentHashMap<UUID, String>()
         val tag = EVENT_TAG_PREFIX + UUID.randomUUID().toString().replace("-", "")
         val alive: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
         val pending = AtomicInteger(0)
@@ -650,7 +675,34 @@ class EventFeature(private val plugin: FemMobsPlugin) {
             }
         }
         if (reason != EndReason.FAILED) leaderboard(event)?.let(::broadcast)
+        // Rewards only for a won event: cleared, or survived to the end in keep-population mode.
+        val won = reason == EndReason.CLEARED || (reason == EndReason.TIME && event.spec.mode == EventMode.KEEP_POPULATION)
+        if (won) giveRewards(event)
         scheduleDropCleanup(event)
+    }
+
+    /** Runs on the global region, which may dispatch console commands. */
+    private fun giveRewards(event: ActiveEvent) {
+        val rewards = event.spec.rewards ?: return
+        val online = event.participants.keys.mapNotNull { Bukkit.getPlayer(it) }
+        if (event.participants.size < rewards.minPlayers) {
+            if (event.participants.isNotEmpty()) broadcast(mini.deserialize(event.spec.messages.rewardsSolo,
+                event.resolver(Placeholder.unparsed("min", rewards.minPlayers.toString()))))
+            return
+        }
+        val console = Bukkit.getConsoleSender()
+        fun run(commands: List<String>, player: Player) = commands.forEach { command ->
+            runCatching { Bukkit.dispatchCommand(console, command.replace("<player>", player.name)) }
+                .onFailure { plugin.logger.log(Level.WARNING, "Reward command failed: $command", it) }
+        }
+        online.forEach { run(rewards.everyone, it) }
+        val topId = event.kills.entries.filter { event.participants.containsKey(it.key) }.maxByOrNull { it.value.get() }?.key
+        val top = topId?.let(Bukkit::getPlayer)
+        if (top != null) run(rewards.top, top)
+        broadcast(mini.deserialize(event.spec.messages.rewards, event.resolver(
+            Placeholder.unparsed("count", online.size.toString()),
+            Placeholder.unparsed("player", top?.name ?: event.killerNames[topId] ?: "nobody"),
+        )))
     }
 
     private fun scheduleDropCleanup(event: ActiveEvent) {
@@ -694,6 +746,12 @@ class EventFeature(private val plugin: FemMobsPlugin) {
 
     /** True when the entity belongs to an event that is still running (so it isn't a leftover). */
     fun ownsEntity(entity: Entity) = eventFor(entity) != null
+
+    /** A player hurt an event mob (directly or with a projectile): they count as taking part. */
+    fun onDamage(victim: Entity, player: Player) {
+        val event = eventFor(victim) ?: return
+        if (victim.uniqueId in event.alive) event.participants[player.uniqueId] = player.name
+    }
 
     fun onDeath(entity: Entity, killer: Player?) {
         val event = eventFor(entity) ?: return

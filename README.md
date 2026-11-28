@@ -4,7 +4,7 @@ FemMobs spawns configurable custom mobs on Paper and Folia 26.3: as waves in any
 
 ## Install
 
-1. Copy `build/libs/FemMobs-1.5.0.jar` into the server's `plugins` folder, removing any older FemMobs jar, and restart the server. PlugManX can't reliably reload Paper plugins (`paper-plugin.yml`): it may keep running the old code.
+1. Copy `build/libs/FemMobs-1.6.0.jar` into the server's `plugins` folder, removing any older FemMobs jar, and restart the server. PlugManX can't reliably reload Paper plugins (`paper-plugin.yml`): it may keep running the old code.
 2. Start the server once. FemMobs creates `plugins/FemMobs/config.yml`.
 3. Edit mob profiles, equipment, attributes, effects, arenas, and wave coordinates in that config.
 4. Run `/femmobs reload` to apply config changes. Reload stops every running arena first. If the new config has an error, the old one stays active and the error is shown.
@@ -60,6 +60,7 @@ Edit `plugins/FemMobs/config.yml`. The bundled file documents all settings and c
 | `equipment` | Armor pieces can also have `trim: { material: gold, pattern: rib }` and leather a `color: '#RRGGBB'`. Blocks (e.g. `MAGMA_BLOCK`) can be worn as helmets. Optional `main-hand`, `off-hand`, `helmet`, `chestplate`, `leggings`, and `boots` items. Set `material`, optional `amount`, an `enchantments` map, and `drop-chance` (0 to 1) per slot. |
 | `effects` | List of potion `type`, `amplifier`, `duration-seconds`, `ambient`, `particles`, and `icon`. A duration of `-1` is infinite. |
 | `invulnerable`, `glowing`, `silent`, `ai`, `can-pickup-items`, `fire-ticks` | Additional entity flags and initial fire duration. `ai` and pickup settings apply to mob entities. |
+| `xp` | Experience dropped on death, replacing the vanilla amount (bundled: grunt/archer 10, ravager 25, Dreadbound 80, Champion 150, bosses 250, minions 5). |
 | `slime-size` | Size for slimes and magma cubes (1 = small). |
 | `glow-color` | Colors the glowing outline (needs `glowing: true`), e.g. `gold`, `dark_purple`. Uses a scoreboard team; Folia has no scoreboard API, so there it stays white. |
 | `boss` | Turns the mob into a boss: abilities, particles, its own health bar, and a death announcement. See [Bosses](#bosses). |
@@ -226,6 +227,7 @@ Event fields:
 | `boss-bar-color` | `PINK`, `BLUE`, `RED`, `GREEN`, `YELLOW`, `PURPLE`, or `WHITE`. |
 | `leaderboard-size` | How many top killers to list at the end (0 hides it). |
 | `glowing` | Event mobs get a glowing outline visible through blocks so players can find them (default `true`). Arena and spawned mobs only glow if their profile sets `glowing: true`. |
+| `rewards` | Participation rewards: console commands run when the event is won (cleared, or survived to the end in `keep-population` mode). `everyone` runs for each player who damaged the event's mobs, `top` once more for the player with the most kills. Only given when at least `min-players` (default 2) took part, so solo runs get just the mob drops and XP. `<player>` is replaced with the player's name, so loot can come from FemItems too (`femitems give <player> custom:...`). |
 | `location-rounding` | Coordinates in messages are rounded to this many blocks (default 50). |
 | `messages` | Optional MiniMessage overrides for `start`, `warning`, `end-time`, `end-cleared`, `end-stopped`, `leaderboard`, `leaderboard-entry`, and `boss-bar`. Placeholders: `<event>`, `<location>`, `<time>`, `<mobs>`, `<radius>`; the leaderboard adds `<entries>`, `<player>`, `<kills>`. The bundled config lists the defaults. |
 
@@ -239,7 +241,7 @@ Event mobs keep their profile tags (FemItems loot works) and also get `femmobs.e
 
 | Field | Meaning |
 | --- | --- |
-| `every-minutes`, `random-minutes` | Time between events, give or take a random amount (default 180 ± 30). The next start time survives restarts. |
+| `every-minutes`, `random-minutes` | Time between events, give or take a random amount (default 60 ± 10). The next start time survives restarts. |
 | `min-players` | Skip (and look again 5 minutes later) when fewer players are online (default 3). Also skipped while any event is running. |
 | `world`, `center-x`, `center-z`, `min-distance`, `max-distance` | Events start at a random spot this many blocks from the center (default 200 to 500 from 0 0 in `world`), on open ground (never water or lava). |
 | `radius` | Event radius for scheduled events (default 30). |

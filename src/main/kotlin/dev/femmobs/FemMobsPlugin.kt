@@ -22,9 +22,11 @@ import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.entity.Entity
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
+import org.bukkit.entity.Projectile
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
+import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDeathEvent
 import org.bukkit.event.entity.EntityRemoveEvent
 import org.bukkit.event.entity.EntityTransformEvent
@@ -367,6 +369,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
                 ?.filter { it in NEW_SCHEDULED_EVENTS && !weights.contains(it, true) }
                 ?.forEach { key -> weights.set(key, bundled.getInt("event-schedule.events.$key")); added += "event-schedule.events.$key" }
         }
+        if (config.getInt("config-version", 0) < 7) upgradeToVersion7(bundled, added)
         for (key in listOf("dreadbound", "champion")) {
             val profile = config.getConfigurationSection("mobs.$key") ?: continue
             val bossSection = bundled.getConfigurationSection("mobs.$key.boss") ?: continue
@@ -378,6 +381,37 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         config.set("config-version", CONFIG_VERSION)
         logger.info("Updated config to version $CONFIG_VERSION. Added: ${added.joinToString(", ").ifEmpty { "nothing new" }}.")
         return true
+    }
+
+    /**
+     * Version 7: XP for the bundled mobs, participation rewards for the bundled events, bigger boss escorts,
+     * and an hourly schedule. Only fills in what's missing, or replaces values still at their old defaults.
+     */
+    private fun upgradeToVersion7(bundled: YamlConfiguration, added: MutableList<String>) {
+        bundled.getConfigurationSection("mobs")?.getKeys(false)?.forEach { key ->
+            val profile = config.getConfigurationSection("mobs.$key") ?: return@forEach
+            if (!profile.contains("xp", true) && bundled.contains("mobs.$key.xp")) {
+                profile.set("xp", bundled.getInt("mobs.$key.xp")); added += "mobs.$key.xp"
+            }
+        }
+        bundled.getConfigurationSection("events")?.getKeys(false)?.forEach { key ->
+            val event = config.getConfigurationSection("events.$key") ?: return@forEach
+            val bundledRewards = bundled.getConfigurationSection("events.$key.rewards")
+            if (!event.contains("rewards", true) && bundledRewards != null) {
+                copySection(bundledRewards, event.createSection("rewards")); added += "events.$key.rewards"
+            }
+            OLD_BOSS_ESCORTS[key]?.let { oldRoster ->
+                val current = event.getMapList("roster").map { row -> row.entries.associate { it.key.toString() to it.value.toString() } }
+                if (current == oldRoster) {
+                    event.set("roster", bundled.getMapList("events.$key.roster")); added += "events.$key.roster (bigger escort)"
+                }
+            }
+        }
+        if (config.getLong("event-schedule.every-minutes", -1) == 180L && config.getLong("event-schedule.random-minutes", -1) == 30L) {
+            config.set("event-schedule.every-minutes", 60)
+            config.set("event-schedule.random-minutes", 10)
+            added += "event-schedule every 60 minutes"
+        }
     }
 
     /** Converts the original list-based `arena.waves` format (version 1) into wave sections. */
@@ -658,6 +692,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
 
     @EventHandler
     fun onDeath(event: EntityDeathEvent) {
+        profileOf(event.entity)?.xp?.let { event.droppedExp = it }
         release(event.entity)
         events.onDeath(event.entity, event.entity.killer)
         bosses.onDeath(event.entity, event.entity.killer)
@@ -670,6 +705,13 @@ class FemMobsPlugin : JavaPlugin(), Listener {
 
     @EventHandler(ignoreCancelled = true)
     fun onItemMerge(event: ItemMergeEvent) = events.onItemMerge(event)
+
+    /** Tracks who takes part in events (melee or projectiles). */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onDamage(event: EntityDamageByEntityEvent) {
+        val player = event.damager as? Player ?: (event.damager as? Projectile)?.shooter as? Player ?: return
+        events.onDamage(event.entity, player)
+    }
 
     /** Despawns, void falls, /kill and other removals also count as the mob being gone; chunk unloads do not. */
     @EventHandler
@@ -962,7 +1004,15 @@ class FemMobsPlugin : JavaPlugin(), Listener {
 
     private companion object {
         const val PERMISSION = "femmobs.admin"
-        const val CONFIG_VERSION = 6
+        const val CONFIG_VERSION = 7
+        /** Boss battle rosters from earlier versions; replaced on upgrade only if still unchanged. */
+        val OLD_BOSS_ESCORTS = mapOf(
+            "molten_warden_battle" to listOf(mapOf("profile" to "grunt", "amount" to "6")),
+            "cosmic_wraith_battle" to listOf(mapOf("profile" to "archer", "amount" to "6")),
+            "reaper_battle" to listOf(mapOf("profile" to "grunt", "amount" to "6")),
+            "frost_battle" to listOf(mapOf("profile" to "archer", "amount" to "6")),
+            "storm_battle" to listOf(mapOf("profile" to "ravager", "amount" to "4")),
+        )
         /** Events whose schedule chances are added to existing configs on upgrade. */
         val NEW_SCHEDULED_EVENTS = setOf("molten_warden_battle", "cosmic_wraith_battle", "reaper_battle", "frost_battle", "storm_battle")
         /** Prefix of the per-run scoreboard tag on wave mobs; unchanged from earlier versions so old leftovers are found. */
