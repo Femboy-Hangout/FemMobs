@@ -45,6 +45,14 @@ import kotlin.math.sqrt
 
 enum class EventMode { FIXED, KEEP_POPULATION }
 
+/** How hard an event is; shown as a colored label in the menu and the event list. */
+enum class Difficulty(val label: String, val color: net.kyori.adventure.text.format.NamedTextColor) {
+    EASY("Easy", net.kyori.adventure.text.format.NamedTextColor.GREEN),
+    MEDIUM("Medium", net.kyori.adventure.text.format.NamedTextColor.GOLD),
+    HARD("Hard", net.kyori.adventure.text.format.NamedTextColor.RED),
+    BOSS("☠ Boss", net.kyori.adventure.text.format.NamedTextColor.DARK_RED),
+}
+
 /** A roster entry: either a relative [weight] for random picks, or an exact [amount]. */
 class RosterEntry(val profile: MobProfile, val weight: Int, val amount: Int?)
 
@@ -78,6 +86,7 @@ class EventSpec(
     val name: String,
     val icon: Material,
     val mode: EventMode,
+    val difficulty: Difficulty,
     /** Fixed: total mobs spawned. Keep population: how many stay alive at once. With exact amounts: their sum. */
     val mobs: Int,
     val respawnSeconds: Long,
@@ -160,6 +169,8 @@ fun loadEvent(key: String, section: ConfigurationSection, profiles: Map<String, 
     val color = section.getString("boss-bar-color", "red")!!.uppercase().let { name ->
         runCatching { BossBar.Color.valueOf(name) }.getOrElse { throw IllegalArgumentException("Unknown boss-bar-color '$name' in $path") }
     }
+    // No boss: leave the line out, or write `boss: none`.
+    val boss = section.getString("boss")?.takeIf { it.isNotBlank() && !it.equals("none", ignoreCase = true) }?.let { profile(it, "$path.boss") }
     val msg = section.getConfigurationSection("messages")
     fun message(key: String, default: String) = msg?.getString(key) ?: default
     return EventSpec(
@@ -167,12 +178,16 @@ fun loadEvent(key: String, section: ConfigurationSection, profiles: Map<String, 
         name = section.getString("name", key)!!,
         icon = icon,
         mode = mode,
+        difficulty = section.getString("difficulty")?.let { name ->
+            runCatching { Difficulty.valueOf(name.uppercase()) }.getOrElse {
+                throw IllegalArgumentException("$path.difficulty must be easy, medium, hard or boss, not '$name'")
+            }
+        } ?: if (boss?.boss?.abilities?.isNotEmpty() == true) Difficulty.BOSS else Difficulty.MEDIUM,
         mobs = mobs,
         respawnSeconds = section.getLong("respawn-seconds", 5).coerceIn(1, 3600),
         durationSeconds = duration,
         roster = roster,
-        // No boss: leave the line out, or write `boss: none`.
-        boss = section.getString("boss")?.takeIf { it.isNotBlank() && !it.equals("none", ignoreCase = true) }?.let { profile(it, "$path.boss") },
+        boss = boss,
         warningsSeconds = section.getLongList("warnings-seconds").filter { it in 1 until duration }.sortedDescending(),
         bossBarColor = color,
         leaderboardSize = section.getInt("leaderboard-size", 3).coerceIn(0, 10),
@@ -350,11 +365,12 @@ class EventFeature(private val plugin: FemMobsPlugin) {
         val specs = plugin.eventSpecs
         if (specs.isEmpty()) { sender.say("No events are configured. Add one under 'events' in config.yml."); return }
         sender.sendMessage(Msg.line("Events (${specs.size}) · click one to fill in its start command", Msg.Tone.INFO))
-        specs.values.forEach { spec ->
+        specs.values.sortedBy { it.difficulty.ordinal }.forEach { spec ->
             val run = active[spec.key]
             val state = if (run == null) "idle" else "RUNNING · ${humanTime(run.secondsLeft)} left · ${run.remainingMobs} mobs"
             sender.sendMessage(Msg.entry(spec.key, "${spec.name} · ${describe(spec)} · $state",
-                "/femmobs event start ${spec.key} 25", hover = "Click to fill in /femmobs event start ${spec.key} 25"))
+                "/femmobs event start ${spec.key} 25", hover = "Click to fill in /femmobs event start ${spec.key} 25",
+                tag = spec.difficulty.label, tagColor = spec.difficulty.color))
         }
     }
 
@@ -444,7 +460,7 @@ class EventFeature(private val plugin: FemMobsPlugin) {
             if (schedule.enabled) Msg.Tone.SUCCESS else Msg.Tone.MUTED))
         sender.sendMessage(Msg.detail("Every ${schedule.everyMinutes} min (±${schedule.randomMinutes}) · next in about $minutes min · needs ${schedule.minPlayers}+ players"))
         sender.sendMessage(Msg.detail("${schedule.minDistance}-${schedule.maxDistance} blocks from X ${schedule.centerX.roundToInt()}, Z ${schedule.centerZ.roundToInt()} in '${schedule.world}' · radius ${schedule.radius}"))
-        sender.sendMessage(Msg.detail("Chances: " + schedule.weights.entries.joinToString(", ") { (key, weight) -> "${plugin.eventSpecs[key]?.name ?: key} ${weight * 100 / total}%" }))
+        sender.sendMessage(Msg.detail("Chances: " + schedule.weights.entries.joinToString(", ") { (key, weight) -> "${plugin.eventSpecs[key]?.name ?: key} ${percent(weight, total)}" }))
         sender.sendMessage(Msg.command("/femmobs event schedule now", "start a scheduled event right away", fill = "/femmobs event schedule now"))
     }
 
@@ -841,5 +857,8 @@ class EventFeature(private val plugin: FemMobsPlugin) {
         }
 
         fun clockTime(seconds: Long) = "%d:%02d".format(seconds / 60, seconds % 60)
+
+        /** "2.7%" with one decimal (weights are relative, so integer division would show 2% as 1%). */
+        fun percent(weight: Int, total: Int) = "%.1f%%".format(java.util.Locale.ROOT, weight * 100.0 / total.coerceAtLeast(1))
     }
 }

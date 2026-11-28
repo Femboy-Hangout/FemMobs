@@ -378,6 +378,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         }
         if (config.getInt("config-version", 0) < 7) upgradeToVersion7(bundled, added)
         if (config.getInt("config-version", 0) < 8) softenAbilities(added)
+        if (config.getInt("config-version", 0) < 9) upgradeToVersion9(bundled, added)
         for (key in listOf("dreadbound", "champion")) {
             val profile = config.getConfigurationSection("mobs.$key") ?: continue
             val bossSection = bundled.getConfigurationSection("mobs.$key.boss") ?: continue
@@ -419,6 +420,50 @@ class FemMobsPlugin : JavaPlugin(), Listener {
             config.set("event-schedule.every-minutes", 60)
             config.set("event-schedule.random-minutes", 10)
             added += "event-schedule every 60 minutes"
+        }
+    }
+
+    /**
+     * Version 9: difficulty tiers. The Dreadbound becomes an elite mob leading the hard "Dreadbound Assault"
+     * instead of a mini-boss, the Champion becomes a full boss, the Forsaken Invasion loses its Dreadbound, and
+     * boss schedule chances even out. Each part only applies where the old defaults are still in place.
+     */
+    private fun upgradeToVersion9(bundled: YamlConfiguration, added: MutableList<String>) {
+        val dreadboundBoss = config.getConfigurationSection("mobs.dreadbound.boss")
+        if (dreadboundBoss != null && dreadboundBoss.getMapList("abilities").isEmpty()) {
+            config.set("mobs.dreadbound.boss", null); added += "mobs.dreadbound (elite mob, no boss bar)"
+        }
+        val champion = config.getConfigurationSection("mobs.champion")
+        if (champion != null && config.getMapList("mobs.champion.boss.abilities").isEmpty()) {
+            config.set("mobs.champion", null)
+            copySection(bundled.getConfigurationSection("mobs.champion")!!, config.createSection("mobs.champion"))
+            added += "mobs.champion (reworked as a boss)"
+        }
+        if (config.getString("events.invasion.boss") == "dreadbound") {
+            config.set("events.invasion.boss", "none"); added += "events.invasion without the Dreadbound"
+        }
+        fun replaceEventIf(key: String, oldRoster: List<Map<String, String>>) {
+            val current = config.getMapList("events.$key.roster").map { row -> row.entries.associate { it.key.toString() to it.value.toString() } }
+            if (config.contains("events.$key", true) && current == oldRoster) {
+                config.set("events.$key", null)
+                copySection(bundled.getConfigurationSection("events.$key")!!, config.createSection("events.$key"))
+                added += "events.$key (reworked)"
+            }
+        }
+        replaceEventIf("dreadbound_battle", listOf(mapOf("profile" to "grunt", "amount" to "8")))
+        replaceEventIf("champion_battle", listOf(mapOf("profile" to "ravager", "amount" to "6")))
+        bundled.getConfigurationSection("events")?.getKeys(false)?.forEach { key ->
+            if (config.contains("events.$key", true) && !config.contains("events.$key.difficulty", true)) {
+                bundled.getString("events.$key.difficulty")?.let { config.set("events.$key.difficulty", it); added += "events.$key.difficulty" }
+            }
+        }
+        listOf("dreadbound_battle" to (6 to 7), "champion_battle" to (4 to 3), "cosmic_wraith_battle" to (2 to 3),
+            "reaper_battle" to (2 to 3), "frost_battle" to (2 to 3), "storm_battle" to (2 to 3), "venom_battle" to (2 to 3),
+        ).forEach { (key, change) ->
+            val path = "event-schedule.events.$key"
+            if (config.contains(path, true) && config.getInt(path) == change.first) {
+                config.set(path, change.second); added += "$path ${change.first} -> ${change.second}"
+            }
         }
     }
 
@@ -863,7 +908,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
 
     internal fun openMainMenu(player: Player) {
         val menu = Menu(3, "FemMobs")
-        val bossBattles = settings.events.values.count { isBossBattle(it) }
+        val bossBattles = settings.events.values.count { it.difficulty == Difficulty.BOSS }
         menu.set(10, Menu.icon(Material.IRON_SWORD, "Events", lore = listOf(
             Menu.field("Configured", "${settings.events.size} ($bossBattles boss battles)"),
             Menu.field("Running", "${events.running.size}"),
@@ -904,42 +949,36 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         menu.open(player)
     }
 
-    /** Small fights around one boss, as opposed to invasions (which may also bring a boss along). */
-    private fun isBossBattle(spec: EventSpec) = spec.boss != null && spec.mobs <= 12
-
     private fun eventLore(spec: EventSpec): MutableList<Component> {
         val lore = mutableListOf<Component>()
-        lore += when {
-            isBossBattle(spec) -> Menu.tag("★ Boss battle", NamedTextColor.GOLD)
-            spec.boss != null -> Menu.tag("⚔ Invasion + boss", NamedTextColor.RED)
-            else -> Menu.tag("⚔ Invasion", NamedTextColor.RED)
-        }
+        lore += Menu.tag(spec.difficulty.label + if (spec.difficulty == Difficulty.BOSS) " battle" else " invasion", spec.difficulty.color)
         lore += Component.empty()
         spec.boss?.let { boss ->
             val health = boss.attributes.entries.firstOrNull { it.key == Attribute.MAX_HEALTH }?.value ?: boss.health
-            lore += Menu.field("Boss", boss.name + (health?.let { " (${it.roundToInt()} ❤)" } ?: ""))
+            lore += Menu.field(if (spec.difficulty == Difficulty.BOSS) "Boss" else "Led by", boss.name + (health?.let { " (${it.roundToInt()} ❤)" } ?: ""))
         }
         lore += Menu.field("Mobs", spec.rosterText())
         lore += Menu.field("Lasts", "${EventFeature.humanTime(spec.durationSeconds)} · " +
             if (spec.mode == EventMode.FIXED) "ends when all are killed" else "keeps ${spec.mobs} alive")
         spec.rewards?.let { lore += Menu.field("Rewards", "yes, with ${it.minPlayers}+ players") }
         settings.schedule.weights[spec.key]?.let { weight ->
-            lore += Menu.field("Schedule chance", "${weight * 100 / settings.schedule.weights.values.sum().coerceAtLeast(1)}%")
+            lore += Menu.field("Schedule chance", EventFeature.percent(weight, settings.schedule.weights.values.sum()))
         }
         lore += Component.empty()
         lore += events.statusOf(spec.key)?.let { Menu.line("● Running · $it", NamedTextColor.RED) } ?: Menu.line("○ Idle", NamedTextColor.DARK_GRAY)
         return lore
     }
 
+    private fun nameColor(spec: EventSpec) = if (spec.difficulty == Difficulty.BOSS) NamedTextColor.RED else NamedTextColor.LIGHT_PURPLE
+
     private fun openEventList(player: Player, page: Int) {
-        // Invasions first, then boss battles.
-        val ordered = settings.events.values.sortedBy { isBossBattle(it) }
+        // Easy to hard, then boss battles.
+        val ordered = settings.events.values.sortedBy { it.difficulty.ordinal }
         pagedMenu(player, "Events", ordered, page, ::openEventList, ::openMainMenu, "Back to menu") { menu, slot, spec ->
             val lore = eventLore(spec)
             lore += Component.empty()
             lore += Menu.hint("Click: choose a radius and start")
-            val color = if (isBossBattle(spec)) NamedTextColor.GOLD else NamedTextColor.LIGHT_PURPLE
-            menu.set(slot, Menu.icon(spec.icon, spec.name, color, lore)) { p, _ -> openEventRadius(p, spec.key) }
+            menu.set(slot, Menu.icon(spec.icon, spec.name, nameColor(spec), lore)) { p, _ -> openEventRadius(p, spec.key) }
         }
     }
 
@@ -947,7 +986,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     private fun openEventRadius(player: Player, eventKey: String) {
         val spec = settings.events[eventKey] ?: return openEventList(player, 0)
         val menu = Menu(3, "FemMobs • ${spec.name}")
-        menu.set(4, Menu.icon(spec.icon, spec.name, if (isBossBattle(spec)) NamedTextColor.GOLD else NamedTextColor.LIGHT_PURPLE, eventLore(spec)))
+        menu.set(4, Menu.icon(spec.icon, spec.name, nameColor(spec), eventLore(spec)))
         val radii = listOf(10, 15, 25, 50, 75, 100, 150).filter { it <= settings.maxEventRadius }
         radii.forEachIndexed { index, radius ->
             menu.set(10 + index, Menu.icon(Material.LIME_DYE, "Start · $radius blocks", NamedTextColor.GREEN, listOf(
@@ -1130,7 +1169,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
 
     private companion object {
         const val PERMISSION = "femmobs.admin"
-        const val CONFIG_VERSION = 8
+        const val CONFIG_VERSION = 9
         /** Boss battle rosters from earlier versions; replaced on upgrade only if still unchanged. */
         val OLD_BOSS_ESCORTS = mapOf(
             "molten_warden_battle" to listOf(mapOf("profile" to "grunt", "amount" to "6")),

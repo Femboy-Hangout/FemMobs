@@ -73,11 +73,16 @@ object Msg {
             .hoverEvent(HoverEvent.showText(Component.text("Click to fill in $fill")))
 
     /** A clickable list entry: `  ▸ name — details`, running or filling [command] on click. */
-    fun entry(name: String, details: String, command: String, run: Boolean = false, hover: String = "Click: $command"): Component =
+    fun entry(
+        name: String, details: String, command: String, run: Boolean = false, hover: String = "Click: $command",
+        tag: String? = null, tagColor: TextColor? = null,
+    ): Component =
         mm.deserialize(
-            "<color:$PINK>  ▸</color> <white><name></white> <color:$MUTED>— <details></color>",
+            "<color:$PINK>  ▸</color> <tag><white><name></white> <color:$MUTED>— <details></color>",
             Placeholder.unparsed("name", name),
             Placeholder.unparsed("details", details),
+            Placeholder.component("tag", if (tag == null) Component.empty()
+                else Component.text("[$tag] ", tagColor ?: TextColor.fromHexString(LAVENDER)!!)),
         )
             .clickEvent(if (run) ClickEvent.runCommand(command) else ClickEvent.suggestCommand(command))
             .hoverEvent(HoverEvent.showText(Component.text(hover)))

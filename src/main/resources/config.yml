@@ -1,7 +1,7 @@
 # Every profile under `mobs` can be reused in any arena wave, and spawned on its own from
 # /femmobs gui -> Spawn mobs or /femmobs spawn <mob>.
 # After editing this file, run /femmobs reload.
-config-version: 8
+config-version: 9
 
 # Safety limit: reload fails if any wave would spawn more than this many mobs (1 to 500).
 # Each mob is scheduled independently for Folia safety, so raise it carefully.
@@ -149,13 +149,6 @@ mobs:
     persistent: true
     xp: 80
     scoreboard-tags: [forsaken.dreadbound]
-    # Health bar, smoke trail and a kill announcement; no abilities, so it fights as before.
-    boss:
-      health-bar: PURPLE
-      particle: SMOKE
-      particle-count: 2
-      death-message: "<dark_purple>⚔ <yellow><killer></yellow> defeated <bold><mob></bold>!"
-      abilities: []
     attributes:
       max-health: 94.0
       attack-damage: 7.0
@@ -190,49 +183,89 @@ mobs:
         particles: false
         icon: false
 
+  # The Forsaken warlord: commands the grunts, bashes and charges, and rallies guards when hurt.
   champion:
     entity-type: WITHER_SKELETON
     name: "The Forsaken Champion"
     name-color: gold
     name-visible: true
     persistent: true
-    xp: 150
+    xp: 250
+    glowing: true
+    glow-color: gold
     scoreboard-tags: [forsaken.champion]
-    boss:
-      health-bar: YELLOW
-      particle: CRIT
-      particle-count: 2
-      death-message: "<gold>⚔ <yellow><killer></yellow> has slain <bold><mob></bold>!"
-      abilities: []
     attributes:
       max-health: 215.0
       attack-damage: 10.5
       movement-speed: 0.28
-      knockback-resistance: 0.5
+      knockback-resistance: 0.6
+      armor: 4.0
+      scale: 1.4
     health: 215.0
     equipment:
       main-hand:
         material: DIAMOND_SWORD
         drop-chance: 0.0
+      off-hand:
+        material: SHIELD
+        drop-chance: 0.0
       helmet:
-        material: DIAMOND_HELMET
+        material: NETHERITE_HELMET
+        trim: { material: gold, pattern: sentry }
         drop-chance: 0.0
       chestplate:
-        material: DIAMOND_CHESTPLATE
+        material: NETHERITE_CHESTPLATE
+        trim: { material: gold, pattern: sentry }
         drop-chance: 0.0
       leggings:
-        material: DIAMOND_LEGGINGS
+        material: NETHERITE_LEGGINGS
+        trim: { material: gold, pattern: sentry }
         drop-chance: 0.0
       boots:
-        material: DIAMOND_BOOTS
+        material: NETHERITE_BOOTS
+        trim: { material: gold, pattern: sentry }
         drop-chance: 0.0
     effects:
-      - type: RESISTANCE
-        amplifier: 0
-        duration-seconds: -1
-        ambient: false
-        particles: false
-        icon: false
+      - { type: RESISTANCE, amplifier: 0, duration-seconds: -1 }
+    boss:
+      health-bar: YELLOW
+      particle: WAX_ON
+      particle-count: 3
+      death-message: "<gold>⚔ <yellow><killer></yellow> has slain <bold><mob></bold>!"
+      abilities:
+        - { type: slam, cooldown: 10, radius: 4, damage: 5, power: 1.2, particle: CRIT, message: "<gold><mob> bashes with its shield!" }
+        - { type: empower, cooldown: 18, effect: strength, level: 1, duration: 5, particle: WAX_ON, message: "<gold><mob> lets out a war cry!" }
+        - { type: teleport, cooldown: 12, range: 14, message: "<gold><mob> charges!" }
+        - { type: summon, cooldown: 25, below-health: 60, summon: forsaken_guard, count: 2, max-alive: 4, radius: 3, message: "<gold><mob> rallies its guard!" }
+        - { type: aura, cooldown: 15, below-health: 30, radius: 6, effect: weakness, level: 1, duration: 4, particle: WAX_ON, message: "<gold><mob> stands its ground..." }
+
+  forsaken_guard:
+    entity-type: ZOMBIE
+    name: "Forsaken Guard"
+    name-color: gold
+    name-visible: true
+    persistent: true
+    xp: 5
+    scoreboard-tags: [forsaken.forsaken_guard]
+    attributes:
+      max-health: 24.0
+      attack-damage: 4.0
+      movement-speed: 0.25
+    health: 24.0
+    equipment:
+      main-hand:
+        material: IRON_SWORD
+        drop-chance: 0.0
+      off-hand:
+        material: SHIELD
+        drop-chance: 0.0
+      helmet:
+        material: GOLDEN_HELMET
+        drop-chance: 0.0
+      chestplate:
+        material: IRON_CHESTPLATE
+        drop-chance: 0.0
+    effects: []
 
   # ------------------------------------------------------------------ bosses
   # A `boss:` section gives a mob abilities, particles, its own health bar and a death announcement.
@@ -719,6 +752,8 @@ events:
   invasion:
     name: "Forsaken Invasion"
     icon: IRON_SWORD
+    # Shown in the menu and /femmobs event list: easy (green), medium (orange), hard (red) or boss.
+    difficulty: medium
     # fixed: spawn `mobs` once; the event ends early when they are all killed.
     # keep-population: keep about `mobs` alive, replacing killed ones every `respawn-seconds`.
     mode: fixed
@@ -740,7 +775,7 @@ events:
     #   - { profile: archer, amount: 6 }
     #   - { profile: ravager, amount: 2 }
     # Optional: one extra mob that spawns once at the start. For no boss, remove the line or write: boss: none
-    boss: dreadbound
+    boss: none
     # Announce how much time is left at these points (seconds remaining).
     warnings-seconds: [300, 60]
     # Boss bar color: PINK, BLUE, RED, GREEN, YELLOW, PURPLE or WHITE.
@@ -779,6 +814,7 @@ events:
   grunt_invasion:
     name: "Grunt Invasion"
     icon: ZOMBIE_HEAD
+    difficulty: easy
     mode: fixed
     duration-seconds: 600
     roster:
@@ -796,6 +832,7 @@ events:
   archer_invasion:
     name: "Archer Invasion"
     icon: BOW
+    difficulty: easy
     mode: fixed
     duration-seconds: 600
     roster:
@@ -813,6 +850,7 @@ events:
   ravager_invasion:
     name: "Ravager Invasion"
     icon: IRON_AXE
+    difficulty: medium
     mode: fixed
     duration-seconds: 600
     roster:
@@ -828,43 +866,50 @@ events:
     glowing: true
 
   # Miniboss battles: the boss spawns once alongside its escort.
+  # A harder invasion led by one Dreadbound (an elite mob, not a boss).
   dreadbound_battle:
-    name: "The Dreadbound Rises"
+    name: "Dreadbound Assault"
     icon: WITHER_ROSE
+    difficulty: hard
     mode: fixed
-    duration-seconds: 600
+    duration-seconds: 720
     roster:
-      - { profile: grunt, amount: 8 }
+      - { profile: grunt, amount: 10 }
+      - { profile: archer, amount: 6 }
+      - { profile: ravager, amount: 4 }
     boss: dreadbound
     warnings-seconds: [300, 60]
-    boss-bar-color: PURPLE
+    boss-bar-color: RED
     leaderboard-size: 3
     rewards:
       min-players: 2
-      everyone: ["give <player> minecraft:diamond 1", "xp add <player> 4 levels"]
-      top: ["give <player> minecraft:golden_apple 1"]
+      everyone: ["give <player> minecraft:emerald 4", "xp add <player> 4 levels"]
+      top: ["give <player> minecraft:diamond 1", "give <player> minecraft:golden_apple 1"]
     glowing: true
 
   champion_battle:
     name: "The Forsaken Champion"
-    icon: WITHER_SKELETON_SKULL
+    icon: GOLDEN_HELMET
+    difficulty: boss
     mode: fixed
     duration-seconds: 900
     roster:
-      - { profile: ravager, amount: 6 }
+      - { profile: ravager, amount: 4 }
+      - { profile: archer, amount: 4 }
     boss: champion
     warnings-seconds: [600, 300, 60]
     boss-bar-color: YELLOW
     leaderboard-size: 3
     rewards:
       min-players: 2
-      everyone: ["give <player> minecraft:diamond 1", "xp add <player> 4 levels"]
-      top: ["give <player> minecraft:golden_apple 1"]
+      everyone: ["give <player> minecraft:diamond 2", "xp add <player> 5 levels"]
+      top: ["give <player> minecraft:netherite_scrap 1"]
     glowing: true
 
   molten_warden_battle:
     name: "The Molten Warden"
     icon: MAGMA_BLOCK
+    difficulty: boss
     mode: fixed
     duration-seconds: 900
     roster:
@@ -883,6 +928,7 @@ events:
   cosmic_wraith_battle:
     name: "The Cosmic Wraith"
     icon: END_CRYSTAL
+    difficulty: boss
     mode: fixed
     duration-seconds: 900
     roster:
@@ -901,6 +947,7 @@ events:
   reaper_battle:
     name: "The Hollow Reaper"
     icon: WITHER_SKELETON_SKULL
+    difficulty: boss
     mode: fixed
     duration-seconds: 900
     roster:
@@ -919,6 +966,7 @@ events:
   frost_battle:
     name: "The Frost Jarl"
     icon: BLUE_ICE
+    difficulty: boss
     mode: fixed
     duration-seconds: 900
     roster:
@@ -937,6 +985,7 @@ events:
   storm_battle:
     name: "The Storm Ronin"
     icon: LIGHTNING_ROD
+    difficulty: boss
     mode: fixed
     duration-seconds: 900
     roster:
@@ -955,6 +1004,7 @@ events:
   venom_battle:
     name: "The Venom Stalker"
     icon: FERMENTED_SPIDER_EYE
+    difficulty: boss
     mode: fixed
     duration-seconds: 900
     roster:
@@ -991,11 +1041,11 @@ event-schedule:
     archer_invasion: 30
     invasion: 10
     ravager_invasion: 10
-    dreadbound_battle: 6
-    champion_battle: 4
+    dreadbound_battle: 7
+    champion_battle: 3
     molten_warden_battle: 3
-    cosmic_wraith_battle: 2
-    reaper_battle: 2
-    frost_battle: 2
-    storm_battle: 2
-    venom_battle: 2
+    cosmic_wraith_battle: 3
+    reaper_battle: 3
+    frost_battle: 3
+    storm_battle: 3
+    venom_battle: 3
