@@ -39,6 +39,8 @@ import org.bukkit.permissions.PermissionDefault
 import org.bukkit.plugin.java.JavaPlugin
 import org.bukkit.util.Vector
 import java.util.UUID
+import kotlin.math.roundToInt
+import org.bukkit.attribute.Attribute
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadLocalRandom
 import java.util.concurrent.atomic.AtomicInteger
@@ -195,7 +197,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
             else -> null
         }
         if (arena == null) {
-            sender.sendMessage(if (arenaKey == null) "Usage: /femmobs start <arena>. Arenas: ${arenaList()}"
+            sender.say(if (arenaKey == null) "Usage: /femmobs start <arena>. Arenas: ${arenaList()}"
                 else "Unknown arena '$arenaKey'. Arenas: ${arenaList()}")
             return 0
         }
@@ -205,7 +207,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
 
     private fun stop(sender: CommandSender, arenaKey: String?): Int {
         if (arenaKey != null && findArena(arenaKey) == null) {
-            sender.sendMessage("Unknown arena '$arenaKey'. Arenas: ${arenaList()}")
+            sender.say("Unknown arena '$arenaKey'. Arenas: ${arenaList()}")
             return 0
         }
         Bukkit.getGlobalRegionScheduler().execute(this) {
@@ -218,11 +220,12 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     }
 
     private fun status(sender: CommandSender): Int {
-        if (runs.isEmpty()) sender.sendMessage("No arenas are running.")
-        else runs.values.forEach { sender.sendMessage("${it.arena.name}: ${describeRun(it)}") }
+        sender.sendMessage(Msg.line("Status", Msg.Tone.INFO))
+        if (runs.isEmpty()) sender.sendMessage(Msg.detail("No arenas are running."))
+        else runs.values.forEach { sender.sendMessage(Msg.detail("Arena ${it.arena.name}: ${describeRun(it)}")) }
         val runningEvents = events.running
-        if (runningEvents.isEmpty()) sender.sendMessage("No events are running.")
-        else runningEvents.forEach { sender.sendMessage("Event $it") }
+        if (runningEvents.isEmpty()) sender.sendMessage(Msg.detail("No events are running."))
+        else runningEvents.forEach { sender.sendMessage(Msg.detail("Event $it")) }
         return Command.SINGLE_SUCCESS
     }
 
@@ -252,10 +255,10 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     }
 
     private fun spawnCommand(sender: CommandSender, mobKey: String, amount: Int): Int {
-        if (sender !is Player) { sender.sendMessage("Only a player can spawn mobs in front of themselves."); return 0 }
+        if (sender !is Player) { sender.say("Only a player can spawn mobs in front of themselves."); return 0 }
         val profile = findProfile(mobKey)
         if (profile == null) {
-            sender.sendMessage("Unknown mob '$mobKey'. Mobs: ${settings.profiles.keys.joinToString(", ")}")
+            sender.say("Unknown mob '$mobKey'. Mobs: ${settings.profiles.keys.joinToString(", ")}")
             return 0
         }
         spawnInFront(sender, profile, amount)
@@ -263,27 +266,31 @@ class FemMobsPlugin : JavaPlugin(), Listener {
     }
 
     private fun openGui(sender: CommandSender): Int {
-        if (sender !is Player) { sender.sendMessage("Only a player can open the menu."); return 0 }
+        if (sender !is Player) { sender.say("Only a player can open the menu."); return 0 }
         sender.scheduler.run(this, { openMainMenu(sender) }, null)
         return Command.SINGLE_SUCCESS
     }
 
     private fun sendHelp(sender: CommandSender): Int {
+        val platform = if (isFolia()) "Folia" else "Paper"
+        val bosses = settings.profiles.values.count { it.boss != null }
+        sender.sendMessage(Msg.line("v${pluginMeta.version} on $platform", Msg.Tone.INFO))
+        sender.sendMessage(Msg.detail("${settings.profiles.size} mobs ($bosses bosses) · ${settings.arenas.size} arenas · " +
+            "${settings.events.size} events · ${traders.count} traders · schedule ${if (settings.schedule.enabled) "on" else "off"}"))
         listOf(
-            "FemMobs commands:",
-            "/femmobs gui - open the menu: arenas and their waves, server events, or spawn any mob profile in front of you.",
-            "/femmobs start <arena> - start an arena's automatic campaign; the next wave starts once the current one is cleared.",
-            "/femmobs stop [arena] - stop one arena (or all) and remove the wave mobs it spawned.",
-            "/femmobs spawn <mob> [amount] - spawn a mob profile a few blocks in front of you.",
-            "/femmobs event start <event> <radius> - start a server event: mobs spawn within <radius> blocks of you, announced to everyone, removed when time runs out.",
-            "/femmobs event schedule [now] - show the automatic event schedule, or start a scheduled event right away to test it.",
-            "/femmobs event stop [event] - end one (or every) event early and remove its mobs. /femmobs event list shows all events.",
-            "/femmobs trader - build custom villager/wandering traders in chat, then spawn them (see /femmobs trader).",
-            "/femmobs status - show running arenas and how many mobs remain.",
-            "/femmobs cleanup - remove leftover wave mobs (from a restart or reload) near online players.",
-            "/femmobs reload - reload config.yml and traders.yml (stops running arenas first).",
-            "Edit mob profiles and arenas in plugins/FemMobs/config.yml, then run /femmobs reload.",
-        ).forEach(sender::sendMessage)
+            "/femmobs gui" to "menu: arenas, events, mobs and traders",
+            "/femmobs event start <event> <radius>" to "start an event around you",
+            "/femmobs event stop [event]" to "end one or all events",
+            "/femmobs event list" to "all events and what's running",
+            "/femmobs event schedule [now]" to "automatic events (now = test one)",
+            "/femmobs spawn <mob> [amount]" to "spawn a mob in front of you",
+            "/femmobs start <arena>" to "start an arena campaign",
+            "/femmobs stop [arena]" to "stop an arena and remove its mobs",
+            "/femmobs trader" to "build and spawn custom traders",
+            "/femmobs status" to "running arenas and events",
+            "/femmobs cleanup" to "remove leftover mobs near players",
+            "/femmobs reload" to "reload config.yml and traders.yml",
+        ).forEach { (command, description) -> sender.sendMessage(Msg.command(command, description)) }
         return Command.SINGLE_SUCCESS
     }
 
@@ -370,6 +377,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
                 ?.forEach { key -> weights.set(key, bundled.getInt("event-schedule.events.$key")); added += "event-schedule.events.$key" }
         }
         if (config.getInt("config-version", 0) < 7) upgradeToVersion7(bundled, added)
+        if (config.getInt("config-version", 0) < 8) softenAbilities(added)
         for (key in listOf("dreadbound", "champion")) {
             val profile = config.getConfigurationSection("mobs.$key") ?: continue
             val bossSection = bundled.getConfigurationSection("mobs.$key.boss") ?: continue
@@ -411,6 +419,27 @@ class FemMobsPlugin : JavaPlugin(), Listener {
             config.set("event-schedule.every-minutes", 60)
             config.set("event-schedule.random-minutes", 10)
             added += "event-schedule every 60 minutes"
+        }
+    }
+
+    /** Version 8: softer Reaper and Frost Jarl effects, only where the abilities are still at the old values. */
+    private fun softenAbilities(added: MutableList<String>) {
+        SOFTENED_ABILITIES.groupBy { it[0] }.forEach { (mob, changes) ->
+            val path = "mobs.$mob.boss.abilities"
+            val abilities = config.getMapList(path).map { LinkedHashMap(it.mapKeys { (key, _) -> key.toString() }) }
+            if (abilities.isEmpty()) return@forEach
+            var changed = false
+            abilities.forEach { ability ->
+                val change = changes.firstOrNull { (_, type, effect, oldLevel, oldDuration) ->
+                    ability["type"]?.toString() == type && ability["effect"]?.toString() == effect &&
+                        (ability["level"]?.toString() ?: "1") == oldLevel && ability["duration"]?.toString()?.toDoubleOrNull() == oldDuration.toDouble()
+                } ?: return@forEach
+                ability["level"] = change[5].toInt()
+                ability["duration"] = change[6].toInt()
+                changed = true
+                added += "mobs.$mob ${change[2]} softened"
+            }
+            if (changed) config.set(path, abilities)
         }
     }
 
@@ -834,137 +863,233 @@ class FemMobsPlugin : JavaPlugin(), Listener {
 
     internal fun openMainMenu(player: Player) {
         val menu = Menu(3, "FemMobs")
-        menu.set(10, Menu.icon(Material.COMPASS, "Arenas", NamedTextColor.GOLD, listOf(
-            Menu.line("${settings.arenas.size} configured, ${runs.size} running", NamedTextColor.YELLOW),
-            Menu.line("Browse arenas, spawn single waves,"),
-            Menu.line("or start and stop campaigns."),
-        ))) { p, _ -> openArenaList(p, 0) }
-        menu.set(13, Menu.icon(Material.IRON_SWORD, "Events", NamedTextColor.GOLD, listOf(
-            Menu.line("${settings.events.size} configured, ${events.running.size} running", NamedTextColor.YELLOW),
-            Menu.line("Start a server event around you:"),
-            Menu.line("mobs spawn in a circle, then despawn."),
+        val bossBattles = settings.events.values.count { isBossBattle(it) }
+        menu.set(10, Menu.icon(Material.IRON_SWORD, "Events", lore = listOf(
+            Menu.field("Configured", "${settings.events.size} ($bossBattles boss battles)"),
+            Menu.field("Running", "${events.running.size}"),
+            Component.empty(),
+            Menu.line("Start an invasion or boss battle"),
+            Menu.line("around you, announced to everyone."),
+            Component.empty(),
+            Menu.hint("Click: browse events"),
         ))) { p, _ -> openEventList(p, 0) }
-        menu.set(16, Menu.icon(Material.SPAWNER, "Spawn mobs", NamedTextColor.GOLD, listOf(
-            Menu.line("${settings.profiles.size} mob profiles", NamedTextColor.YELLOW),
-            Menu.line("Spawn any profile a few blocks"),
-            Menu.line("in front of you."),
+        menu.set(12, Menu.icon(Material.SPAWNER, "Spawn mobs", lore = listOf(
+            Menu.field("Mob profiles", "${settings.profiles.size} (${settings.profiles.values.count { it.boss?.abilities?.isNotEmpty() == true }} with boss abilities)"),
+            Component.empty(),
+            Menu.line("Spawn any mob or boss a few"),
+            Menu.line("blocks in front of you."),
+            Component.empty(),
+            Menu.hint("Click: browse mobs"),
         ))) { p, _ -> openMobMenu(p, 0) }
+        menu.set(14, Menu.icon(Material.EMERALD, "Traders", lore = listOf(
+            Menu.field("Saved", "${traders.count}"),
+            Component.empty(),
+            Menu.line("Spawn your custom villagers and"),
+            Menu.line("wandering traders."),
+            Component.empty(),
+            Menu.hint("Click: browse traders"),
+        ))) { p, _ -> openTraderMenu(p, 0) }
+        menu.set(16, Menu.icon(Material.COMPASS, "Arenas", lore = listOf(
+            Menu.field("Configured", "${settings.arenas.size}"),
+            Menu.field("Running", "${runs.size}"),
+            Component.empty(),
+            Menu.line("Wave campaigns at fixed spots."),
+            Component.empty(),
+            Menu.hint("Click: browse arenas"),
+        ))) { p, _ -> openArenaList(p, 0) }
+        menu.set(22, Menu.icon(Material.BOOK, "FemMobs v${pluginMeta.version}", NamedTextColor.YELLOW, listOf(
+            Menu.field("Automatic events", if (settings.schedule.enabled) "on, every ${settings.schedule.everyMinutes} min" else "off"),
+            Menu.field("Commands", "/femmobs help"),
+        )))
         menu.open(player)
     }
 
+    /** Small fights around one boss, as opposed to invasions (which may also bring a boss along). */
+    private fun isBossBattle(spec: EventSpec) = spec.boss != null && spec.mobs <= 12
+
+    private fun eventLore(spec: EventSpec): MutableList<Component> {
+        val lore = mutableListOf<Component>()
+        lore += when {
+            isBossBattle(spec) -> Menu.tag("★ Boss battle", NamedTextColor.GOLD)
+            spec.boss != null -> Menu.tag("⚔ Invasion + boss", NamedTextColor.RED)
+            else -> Menu.tag("⚔ Invasion", NamedTextColor.RED)
+        }
+        lore += Component.empty()
+        spec.boss?.let { boss ->
+            val health = boss.attributes.entries.firstOrNull { it.key == Attribute.MAX_HEALTH }?.value ?: boss.health
+            lore += Menu.field("Boss", boss.name + (health?.let { " (${it.roundToInt()} ❤)" } ?: ""))
+        }
+        lore += Menu.field("Mobs", spec.rosterText())
+        lore += Menu.field("Lasts", "${EventFeature.humanTime(spec.durationSeconds)} · " +
+            if (spec.mode == EventMode.FIXED) "ends when all are killed" else "keeps ${spec.mobs} alive")
+        spec.rewards?.let { lore += Menu.field("Rewards", "yes, with ${it.minPlayers}+ players") }
+        settings.schedule.weights[spec.key]?.let { weight ->
+            lore += Menu.field("Schedule chance", "${weight * 100 / settings.schedule.weights.values.sum().coerceAtLeast(1)}%")
+        }
+        lore += Component.empty()
+        lore += events.statusOf(spec.key)?.let { Menu.line("● Running · $it", NamedTextColor.RED) } ?: Menu.line("○ Idle", NamedTextColor.DARK_GRAY)
+        return lore
+    }
+
     private fun openEventList(player: Player, page: Int) {
-        pagedMenu(player, "Events", settings.events.values.toList(), page, ::openEventList, ::openMainMenu) { menu, slot, spec ->
-            val lore = mutableListOf(
-                Menu.line(events.describe(spec), NamedTextColor.YELLOW),
-                Menu.line("Mode: ${if (spec.mode == EventMode.FIXED) "fixed (ends when all are killed)" else "keep population"}"),
-                Menu.line("Mobs: ${spec.rosterText()}"),
-            )
-            lore += if (events.isRunning(spec.key)) Menu.line("Running", NamedTextColor.RED) else Menu.line("Idle", NamedTextColor.DARK_GRAY)
+        // Invasions first, then boss battles.
+        val ordered = settings.events.values.sortedBy { isBossBattle(it) }
+        pagedMenu(player, "Events", ordered, page, ::openEventList, ::openMainMenu, "Back to menu") { menu, slot, spec ->
+            val lore = eventLore(spec)
             lore += Component.empty()
-            lore += Menu.line("Click to choose a radius and start", NamedTextColor.GREEN)
-            menu.set(slot, Menu.icon(spec.icon, spec.name, NamedTextColor.GOLD, lore)) { p, _ -> openEventRadius(p, spec.key) }
+            lore += Menu.hint("Click: choose a radius and start")
+            val color = if (isBossBattle(spec)) NamedTextColor.GOLD else NamedTextColor.LIGHT_PURPLE
+            menu.set(slot, Menu.icon(spec.icon, spec.name, color, lore)) { p, _ -> openEventRadius(p, spec.key) }
         }
     }
 
     /** Pick a radius; the event starts centered on the player. */
     private fun openEventRadius(player: Player, eventKey: String) {
         val spec = settings.events[eventKey] ?: return openEventList(player, 0)
-        val menu = Menu(3, "${spec.name}: radius")
+        val menu = Menu(3, "FemMobs • ${spec.name}")
+        menu.set(4, Menu.icon(spec.icon, spec.name, if (isBossBattle(spec)) NamedTextColor.GOLD else NamedTextColor.LIGHT_PURPLE, eventLore(spec)))
         val radii = listOf(10, 15, 25, 50, 75, 100, 150).filter { it <= settings.maxEventRadius }
         radii.forEachIndexed { index, radius ->
-            menu.set(9 + index + (7 - radii.size) / 2 + 1, Menu.icon(Material.LIME_CONCRETE, "$radius blocks", NamedTextColor.GREEN, listOf(
+            menu.set(10 + index, Menu.icon(Material.LIME_DYE, "Start · $radius blocks", NamedTextColor.GREEN, listOf(
                 Menu.line("Mobs spawn up to $radius blocks"),
-                Menu.line("from you in every direction."),
-                Menu.line("Other sizes: /femmobs event start ${spec.key} <radius>", NamedTextColor.DARK_GRAY),
+                Menu.line("around you (${radius * 2} blocks across)."),
+                Component.empty(),
+                Menu.hint("Click: start it here"),
             ))) { p, _ -> p.closeInventory(); events.start(p, spec.key, radius) }
         }
-        menu.set(0, Menu.icon(Material.BOOK, spec.name, NamedTextColor.YELLOW, listOf(Menu.line(events.describe(spec)))))
+        menu.set(18, Menu.back("Back to events")) { p, _ -> openEventList(p, 0) }
         if (events.isRunning(spec.key)) {
-            menu.set(8, Menu.icon(Material.BARRIER, "Stop event", NamedTextColor.RED, listOf(
+            menu.set(22, Menu.icon(Material.BARRIER, "Stop event", NamedTextColor.RED, listOf(
                 Menu.line("Ends it now and removes its mobs."),
+                Component.empty(),
+                Menu.hint("Click: stop"),
             ))) { p, _ -> p.closeInventory(); events.stop(p, spec.key) }
         }
-        menu.set(22, Menu.icon(Material.OAK_DOOR, "Back")) { p, _ -> openEventList(p, 0) }
+        menu.set(26, Menu.icon(Material.PAPER, "Other radius", NamedTextColor.YELLOW, listOf(
+            Menu.line("/femmobs event start ${spec.key} <radius>"),
+            Menu.line("Any radius from 5 to ${settings.maxEventRadius} blocks."),
+        )))
         menu.open(player)
     }
 
-    /** Fills a 6-row menu with one page of [items] and adds previous/next/back controls on the bottom row. */
+    /** Fills a 6-row menu with one page of [items] and adds back/previous/next on the bottom row, like FemItems. */
     private fun <T> pagedMenu(
         player: Player, title: String, items: List<T>, page: Int,
-        reopen: (Player, Int) -> Unit, back: ((Player) -> Unit)?,
+        reopen: (Player, Int) -> Unit, back: ((Player) -> Unit)?, backLabel: String,
         render: (Menu, Int, T) -> Unit,
     ): Menu {
         val pages = ((items.size + Menu.PAGE_SIZE - 1) / Menu.PAGE_SIZE).coerceAtLeast(1)
         val safePage = page.coerceIn(0, pages - 1)
-        val menu = Menu(6, "$title (${safePage + 1}/$pages)")
+        val menu = Menu(6, "FemMobs • $title" + if (pages > 1) " (${safePage + 1}/$pages)" else "")
         val first = safePage * Menu.PAGE_SIZE
         items.subList(first, minOf(first + Menu.PAGE_SIZE, items.size)).forEachIndexed { slot, item -> render(menu, slot, item) }
-        if (safePage > 0) menu.set(45, Menu.icon(Material.ARROW, "Previous page")) { p, _ -> reopen(p, safePage - 1) }
-        if (safePage < pages - 1) menu.set(53, Menu.icon(Material.ARROW, "Next page")) { p, _ -> reopen(p, safePage + 1) }
-        if (back != null) menu.set(48, Menu.icon(Material.OAK_DOOR, "Back")) { p, _ -> back(p) }
+        if (back != null) menu.set(Menu.BACK_SLOT, Menu.back(backLabel)) { p, _ -> back(p) }
+        if (safePage > 0) menu.set(Menu.PREVIOUS_SLOT, Menu.previous()) { p, _ -> reopen(p, safePage - 1) }
+        if (safePage < pages - 1) menu.set(Menu.NEXT_SLOT, Menu.next()) { p, _ -> reopen(p, safePage + 1) }
         return menu.also { it.open(player) }
     }
 
     private fun openArenaList(player: Player, page: Int) {
-        pagedMenu(player, "Arenas", settings.arenas.values.toList(), page, ::openArenaList, ::openMainMenu) { menu, slot, arena ->
+        pagedMenu(player, "Arenas", settings.arenas.values.toList(), page, ::openArenaList, ::openMainMenu, "Back to menu") { menu, slot, arena ->
             val run = runs[arena.key]
             val lore = mutableListOf<Component>()
-            if (arena.description.isNotBlank()) lore += Menu.line(arena.description)
-            lore += Menu.line("World: ${arena.worldName}")
-            lore += Menu.line("${arena.waves.size} wave(s)", NamedTextColor.YELLOW)
-            lore += if (run == null) Menu.line("Idle", NamedTextColor.DARK_GRAY) else Menu.line("Running: ${describeRun(run)}", NamedTextColor.RED)
+            if (arena.description.isNotBlank()) { lore += Menu.line(arena.description); lore += Component.empty() }
+            lore += Menu.field("World", arena.worldName)
+            lore += Menu.field("Waves", "${arena.waves.size}")
             lore += Component.empty()
-            lore += Menu.line("Click to view waves", NamedTextColor.GREEN)
-            menu.set(slot, Menu.icon(arena.icon, arena.name, NamedTextColor.GOLD, lore)) { p, _ -> openWaveMenu(p, arena.key, 0) }
+            lore += if (run == null) Menu.line("○ Idle", NamedTextColor.DARK_GRAY) else Menu.line("● Running · ${describeRun(run)}", NamedTextColor.RED)
+            lore += Component.empty()
+            lore += Menu.hint("Click: view waves")
+            menu.set(slot, Menu.icon(arena.icon, arena.name, lore = lore)) { p, _ -> openWaveMenu(p, arena.key, 0) }
         }
     }
 
     private fun openWaveMenu(player: Player, arenaKey: String, page: Int) {
         val arena = settings.arenas[arenaKey] ?: return openArenaList(player, 0)
         val menu = pagedMenu(player, arena.name, arena.waves.withIndex().toList(), page,
-            { p, newPage -> openWaveMenu(p, arenaKey, newPage) }, { p -> openArenaList(p, 0) }) { menu, slot, (waveIndex, wave) ->
-            val lore = mutableListOf(
-                Menu.line("${wave.spawns.sumOf { it.amount }} mob(s)", NamedTextColor.YELLOW),
-                Menu.line("Click to spawn only this wave", NamedTextColor.GREEN),
-                Component.empty(),
-            )
-            if (wave.description.isNotBlank()) lore += Menu.line(wave.description)
-            wave.spawns.forEach { spawn ->
-                lore += Menu.line("${spawn.profile.name} x${spawn.amount} (${spawn.profile.key})", NamedTextColor.WHITE)
-                lore += Menu.line("  ${spawn.x}, ${spawn.y}, ${spawn.z}; yaw ${spawn.yaw}, pitch ${spawn.pitch}")
-                if (spawn.spread > 0.0) lore += Menu.line("  spread radius ${spawn.spread}")
+            { p, newPage -> openWaveMenu(p, arenaKey, newPage) }, { p -> openArenaList(p, 0) }, "Back to arenas") { menu, slot, (waveIndex, wave) ->
+            val lore = mutableListOf<Component>()
+            if (wave.description.isNotBlank()) { lore += Menu.line(wave.description); lore += Component.empty() }
+            lore += Menu.field("Mobs", "${wave.spawns.sumOf { it.amount }}")
+            wave.spawns.groupBy { it.profile }.forEach { (profile, spawns) ->
+                lore += Menu.line("  • ${spawns.sumOf { it.amount }}x ${profile.name}")
             }
-            lore += Menu.line("Next campaign delay: ${wave.delayAfterSeconds ?: arena.waveDelaySeconds}s", NamedTextColor.DARK_GRAY)
-            menu.set(slot, Menu.icon(Material.NETHER_STAR, "Wave ${waveIndex + 1}: ${wave.name}", NamedTextColor.GOLD, lore)) { p, _ ->
+            lore += Menu.field("Next wave after", "${wave.delayAfterSeconds ?: arena.waveDelaySeconds}s")
+            lore += Component.empty()
+            lore += Menu.hint("Click: spawn only this wave")
+            menu.set(slot, Menu.icon(Material.NETHER_STAR, "Wave ${waveIndex + 1}: ${wave.name}", lore = lore)) { p, _ ->
                 p.closeInventory()
                 spawnSelectedWave(p, arena, waveIndex)
             }
         }
         val run = runs[arena.key]
         menu.set(49, Menu.icon(Material.BOOK, arena.name, NamedTextColor.YELLOW, listOf(
-            if (run == null) Menu.line("Idle") else Menu.line("Running: ${describeRun(run)}", NamedTextColor.RED),
-            Menu.line("World: ${arena.worldName}"),
+            Menu.field("World", arena.worldName),
+            if (run == null) Menu.line("○ Idle", NamedTextColor.DARK_GRAY) else Menu.line("● Running · ${describeRun(run)}", NamedTextColor.RED),
         )))
-        menu.set(47, Menu.icon(Material.LIME_CONCRETE, "Start campaign", NamedTextColor.GREEN, listOf(
+        menu.set(52, Menu.icon(Material.LIME_DYE, "Start campaign", NamedTextColor.GREEN, listOf(
             Menu.line("Runs all ${arena.waves.size} waves in order."),
+            Component.empty(),
+            Menu.hint("Click: start"),
         ))) { p, _ -> p.closeInventory(); startCampaign(p, arena) }
-        menu.set(51, Menu.icon(Material.BARRIER, "Stop arena", NamedTextColor.RED, listOf(
-            Menu.line("Stops this arena and removes its wave mobs."),
+        menu.set(53, Menu.icon(Material.BARRIER, "Stop arena", NamedTextColor.RED, listOf(
+            Menu.line("Stops it and removes its wave mobs."),
+            Component.empty(),
+            Menu.hint("Click: stop"),
         ))) { p, _ -> p.closeInventory(); stop(p, arena.key) }
     }
 
     private fun openMobMenu(player: Player, page: Int) {
-        pagedMenu(player, "Spawn mobs", settings.profiles.values.toList(), page, ::openMobMenu, ::openMainMenu) { menu, slot, profile ->
-            val lore = mutableListOf(
-                Menu.line("Profile: ${profile.key}"),
-                Menu.line("Entity: ${profile.entityType.name.lowercase()}"),
-            )
-            profile.health?.let { lore += Menu.line("Health: $it") }
-            if (profile.tags.isNotEmpty()) lore += Menu.line("Tags: ${profile.tags.joinToString(", ")}", NamedTextColor.DARK_GRAY)
+        val summoners = settings.profiles.values.flatMap { boss -> boss.boss?.abilities.orEmpty().mapNotNull { it.summon }.map { it to boss } }
+            .groupBy({ it.first }, { it.second.name })
+        pagedMenu(player, "Spawn mobs", settings.profiles.values.toList(), page, ::openMobMenu, ::openMainMenu, "Back to menu") { menu, slot, profile ->
+            val lore = mutableListOf<Component>()
+            val abilities = profile.boss?.abilities.orEmpty()
+            when {
+                abilities.isNotEmpty() -> lore += Menu.tag("★ Boss", NamedTextColor.GOLD)
+                profile.boss != null -> lore += Menu.tag("★ Mini-boss", NamedTextColor.GOLD)
+                profile.key in summoners -> lore += Menu.tag("Minion", NamedTextColor.DARK_PURPLE)
+            }
+            if (lore.isNotEmpty()) lore += Component.empty()
+            val maxHealth = profile.attributes.entries.firstOrNull { it.key == Attribute.MAX_HEALTH }?.value ?: profile.health
+            maxHealth?.let { lore += Menu.field("Health", "${it.roundToInt()} ❤") }
+            profile.attributes.entries.firstOrNull { it.key == Attribute.ATTACK_DAMAGE }?.value?.let { lore += Menu.field("Damage", "$it + weapon") }
+            profile.xp?.let { lore += Menu.field("XP", "$it") }
+            if (abilities.isNotEmpty()) lore += Menu.field("Abilities", abilities.joinToString(", ") { ability ->
+                ability.type.name.lowercase() + (ability.effect?.let { " (${it.key.key.replace('_', ' ')})" } ?: "")
+            })
+            summoners[profile.key]?.let { lore += Menu.field("Summoned by", it.distinct().joinToString(", ")) }
             lore += Component.empty()
-            lore += Menu.line("Left-click: spawn 1 in front of you", NamedTextColor.GREEN)
-            lore += Menu.line("Shift-click: spawn 5", NamedTextColor.GREEN)
+            lore += Menu.line(profile.key + (profile.tags.firstOrNull()?.let { " · $it" } ?: ""), NamedTextColor.DARK_GRAY)
+            lore += Menu.hint("Click: spawn 1 · Shift-click: spawn 5")
             menu.set(slot, Menu.icon(profile.icon, profile.name, profile.nameColor, lore)) { p, click -> spawnInFront(p, profile, if (click.isShiftClick) 5 else 1) }
+        }
+    }
+
+    private fun openTraderMenu(player: Player, page: Int) {
+        val menu = pagedMenu(player, "Traders", traders.saved.toList(), page, ::openTraderMenu, ::openMainMenu, "Back to menu") { menu, slot, trader ->
+            val lore = mutableListOf(
+                Menu.field("Type", traders.describeKind(trader)),
+                Menu.field("Trades", "${trader.trades.size}"),
+            )
+            trader.trades.take(6).forEach { trade -> lore += Menu.line("  • ${traders.tradeText(trade)}") }
+            if (trader.trades.size > 6) lore += Menu.line("  • ...and ${trader.trades.size - 6} more")
+            lore += Component.empty()
+            lore += Menu.line(trader.key, NamedTextColor.DARK_GRAY)
+            lore += Menu.hint("Click: spawn in front of you · Shift-click: edit")
+            val egg = if (trader.kind == TraderKind.VILLAGER) Material.VILLAGER_SPAWN_EGG else Material.WANDERING_TRADER_SPAWN_EGG
+            menu.set(slot, Menu.icon(egg, traders.displayName(trader), lore = lore)) { p, click ->
+                if (click.isShiftClick) { p.closeInventory(); traders.edit(p, trader.key) } else traders.spawnSaved(p, trader.key)
+            }
+        }
+        menu.set(49, Menu.icon(Material.WRITABLE_BOOK, "New trader", NamedTextColor.GREEN, listOf(
+            Menu.line("Build one step by step in chat:"),
+            Menu.line("/femmobs trader create <name>"),
+            Component.empty(),
+            Menu.hint("Click: show the command in chat"),
+        ))) { p, _ ->
+            p.closeInventory()
+            p.sendMessage(Msg.command("/femmobs trader create <name>", "click, then type a name", fill = "/femmobs trader create"))
         }
     }
 
@@ -994,9 +1119,10 @@ class FemMobsPlugin : JavaPlugin(), Listener {
         else Bukkit.getPlayer(owner)?.let { tell(it, message) }
     }
 
+    /** Sends a styled `[FemMobs]` line on the player's own thread (or straight to the console). */
     internal fun tell(sender: CommandSender, message: String) {
-        if (sender is Player) sender.scheduler.run(this, { sender.sendMessage(message) }, null)
-        else sender.sendMessage(message)
+        if (sender is Player) sender.scheduler.run(this, { sender.say(message) }, null)
+        else sender.say(message)
     }
 
     private fun isFolia(): Boolean =
@@ -1004,7 +1130,7 @@ class FemMobsPlugin : JavaPlugin(), Listener {
 
     private companion object {
         const val PERMISSION = "femmobs.admin"
-        const val CONFIG_VERSION = 7
+        const val CONFIG_VERSION = 8
         /** Boss battle rosters from earlier versions; replaced on upgrade only if still unchanged. */
         val OLD_BOSS_ESCORTS = mapOf(
             "molten_warden_battle" to listOf(mapOf("profile" to "grunt", "amount" to "6")),
@@ -1014,7 +1140,18 @@ class FemMobsPlugin : JavaPlugin(), Listener {
             "storm_battle" to listOf(mapOf("profile" to "ravager", "amount" to "4")),
         )
         /** Events whose schedule chances are added to existing configs on upgrade. */
-        val NEW_SCHEDULED_EVENTS = setOf("molten_warden_battle", "cosmic_wraith_battle", "reaper_battle", "frost_battle", "storm_battle")
+        val NEW_SCHEDULED_EVENTS = setOf("molten_warden_battle", "cosmic_wraith_battle", "reaper_battle", "frost_battle", "storm_battle", "venom_battle")
+
+        /**
+         * Version 8 softened some boss abilities. Each entry: mob, ability type, effect, old level, old duration,
+         * new level, new duration. Applied on upgrade only to abilities still at the old values.
+         */
+        val SOFTENED_ABILITIES = listOf(
+            listOf("hollow_reaper", "aura", "wither", "2", "5", "1", "4"),
+            listOf("hollow_reaper", "aura", "darkness", "1", "6", "1", "4"),
+            listOf("frost_jarl", "aura", "slowness", "3", "3", "2", "3"),
+            listOf("frost_jarl", "aura", "mining_fatigue", "2", "6", "1", "6"),
+        )
         /** Prefix of the per-run scoreboard tag on wave mobs; unchanged from earlier versions so old leftovers are found. */
         const val RUN_TAG_PREFIX = "femmobs_"
         /** Marks mobs spawned from the mob menu or /femmobs spawn. They are not tracked or cleaned up. */

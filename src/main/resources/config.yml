@@ -1,7 +1,7 @@
 # Every profile under `mobs` can be reused in any arena wave, and spawned on its own from
 # /femmobs gui -> Spawn mobs or /femmobs spawn <mob>.
 # After editing this file, run /femmobs reload.
-config-version: 7
+config-version: 8
 
 # Safety limit: reload fails if any wave would spawn more than this many mobs (1 to 500).
 # Each mob is scheduled independently for Folia safety, so raise it carefully.
@@ -436,8 +436,8 @@ mobs:
       particle-count: 3
       death-message: "<gray>☠ <yellow><killer></yellow> sent <bold><mob></bold> back to the grave!"
       abilities:
-        - { type: aura, cooldown: 10, radius: 5, effect: wither, level: 2, duration: 5, particle: SOUL, message: "<gray><mob> drains the life around it..." }
-        - { type: aura, cooldown: 20, radius: 8, effect: darkness, duration: 6, particle: SCULK_SOUL }
+        - { type: aura, cooldown: 10, radius: 5, effect: wither, level: 1, duration: 4, particle: SOUL, message: "<gray><mob> drains the life around it..." }
+        - { type: aura, cooldown: 20, radius: 8, effect: darkness, duration: 4, particle: SCULK_SOUL }
         - { type: slam, cooldown: 12, radius: 4, damage: 6, power: 0.4, effect: slowness, level: 2, duration: 3, particle: SOUL_FIRE_FLAME }
         - { type: summon, cooldown: 25, below-health: 70, summon: lost_soul, count: 3, max-alive: 3, radius: 3, message: "<gray>Lost souls answer <mob>'s call!" }
 
@@ -501,8 +501,8 @@ mobs:
       death-message: "<aqua>❄ <yellow><killer></yellow> shattered <bold><mob></bold>!"
       abilities:
         - { type: slam, cooldown: 9, radius: 5, damage: 6, power: 0.8, freeze-seconds: 3, particle: SNOWFLAKE, message: "<aqua><mob> shatters the ground with ice!" }
-        - { type: aura, cooldown: 12, radius: 6, effect: slowness, level: 3, duration: 3, particle: SNOWFLAKE }
-        - { type: aura, cooldown: 18, below-health: 60, radius: 6, effect: mining_fatigue, level: 2, duration: 6, freeze-seconds: 2, particle: ITEM_SNOWBALL, message: "<aqua>A blizzard surrounds <mob>!" }
+        - { type: aura, cooldown: 12, radius: 6, effect: slowness, level: 2, duration: 3, particle: SNOWFLAKE }
+        - { type: aura, cooldown: 18, below-health: 60, radius: 6, effect: mining_fatigue, level: 1, duration: 6, freeze-seconds: 2, particle: ITEM_SNOWBALL, message: "<aqua>A blizzard surrounds <mob>!" }
         - { type: summon, cooldown: 30, below-health: 50, summon: frost_wisp, count: 2, max-alive: 4, radius: 4 }
 
   frost_wisp:
@@ -576,6 +576,75 @@ mobs:
         - { type: teleport, cooldown: 9, range: 14, message: "<yellow><mob> flashes behind you!" }
         - { type: slam, cooldown: 11, radius: 4, damage: 5, power: 1.4, particle: ELECTRIC_SPARK }
         - { type: empower, cooldown: 25, below-health: 50, effect: speed, level: 2, duration: 8, particle: ELECTRIC_SPARK, message: "<yellow><mob> crackles with energy!" }
+
+  # Venom: a fast assassin that poisons, pounces behind its target and vanishes when hurt.
+  venom_stalker:
+    entity-type: BOGGED
+    name: "The Venom Stalker"
+    name-color: dark_green
+    name-visible: true
+    persistent: true
+    xp: 250
+    glowing: true
+    glow-color: dark_green
+    scoreboard-tags: [forsaken.venom_stalker]
+    attributes:
+      max-health: 210.0
+      attack-damage: 9.0
+      movement-speed: 0.32
+      knockback-resistance: 0.3
+      armor: 6.0
+      scale: 1.3
+    health: 210.0
+    equipment:
+      main-hand:
+        material: IRON_SWORD
+        drop-chance: 0.0
+      helmet:
+        material: LEATHER_HELMET
+        color: '#1f4d1f'
+        trim: { material: emerald, pattern: eye }
+        drop-chance: 0.0
+      chestplate:
+        material: LEATHER_CHESTPLATE
+        color: '#1f4d1f'
+        trim: { material: emerald, pattern: eye }
+        drop-chance: 0.0
+      leggings:
+        material: LEATHER_LEGGINGS
+        color: '#1f4d1f'
+        trim: { material: emerald, pattern: eye }
+        drop-chance: 0.0
+      boots:
+        material: LEATHER_BOOTS
+        color: '#1f4d1f'
+        drop-chance: 0.0
+    effects: []
+    boss:
+      health-bar: GREEN
+      particle: ITEM_SLIME
+      particle-count: 3
+      death-message: "<dark_green>☣ <yellow><killer></yellow> took down <bold><mob></bold>!"
+      abilities:
+        - { type: aura, cooldown: 14, radius: 4, effect: poison, level: 1, duration: 4, particle: ITEM_SLIME, message: "<dark_green><mob> releases a cloud of venom!" }
+        - { type: teleport, cooldown: 8, range: 14, message: "<dark_green><mob> pounces from the shadows!" }
+        - { type: empower, cooldown: 20, below-health: 50, effect: invisibility, duration: 4, particle: SMOKE, message: "<dark_green><mob> vanishes..." }
+        - { type: empower, cooldown: 20, below-health: 50, effect: speed, level: 2, duration: 6, particle: ITEM_SLIME }
+        - { type: summon, cooldown: 25, below-health: 40, summon: venom_spider, count: 2, max-alive: 4, radius: 3, message: "<dark_green>Spiders swarm to <mob>!" }
+
+  venom_spider:
+    entity-type: CAVE_SPIDER
+    name: "Venom Spider"
+    name-color: dark_green
+    name-visible: false
+    persistent: true
+    xp: 5
+    scoreboard-tags: [forsaken.venom_spider]
+    attributes:
+      max-health: 12.0
+      attack-damage: 2.0
+    health: 12.0
+    effects: []
 
 # Each key under `arenas` is an arena (or any other spawn area). Arenas are listed in the menu,
 # can run at the same time, and each has its own waves. Start one with /femmobs start <arena>.
@@ -883,6 +952,24 @@ events:
       top: ["give <player> minecraft:netherite_scrap 1"]
     glowing: true
 
+  venom_battle:
+    name: "The Venom Stalker"
+    icon: FERMENTED_SPIDER_EYE
+    mode: fixed
+    duration-seconds: 900
+    roster:
+      - { profile: archer, amount: 6 }
+      - { profile: grunt, amount: 4 }
+    boss: venom_stalker
+    warnings-seconds: [600, 300, 60]
+    boss-bar-color: GREEN
+    leaderboard-size: 3
+    rewards:
+      min-players: 2
+      everyone: ["give <player> minecraft:diamond 2", "xp add <player> 5 levels"]
+      top: ["give <player> minecraft:netherite_scrap 1"]
+    glowing: true
+
 # Automatic events. When enabled, every `every-minutes` (give or take `random-minutes`) a random event
 # from `events` starts at a random spot min-distance to max-distance blocks from center-x/center-z,
 # and the announcement gives its exact coordinates. Skipped (retried 5 minutes later) when fewer than
@@ -911,3 +998,4 @@ event-schedule:
     reaper_battle: 2
     frost_battle: 2
     storm_battle: 2
+    venom_battle: 2

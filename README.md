@@ -4,7 +4,7 @@ FemMobs spawns configurable custom mobs on Paper and Folia 26.3: as waves in any
 
 ## Install
 
-1. Copy `build/libs/FemMobs-1.6.0.jar` into the server's `plugins` folder, removing any older FemMobs jar, and restart the server. PlugManX can't reliably reload Paper plugins (`paper-plugin.yml`): it may keep running the old code.
+1. Copy `build/libs/FemMobs-1.8.0.jar` into the server's `plugins` folder, removing any older FemMobs jar, and restart the server. PlugManX can't reliably reload Paper plugins (`paper-plugin.yml`): it may keep running the old code.
 2. Start the server once. FemMobs creates `plugins/FemMobs/config.yml`.
 3. Edit mob profiles, equipment, attributes, effects, arenas, and wave coordinates in that config.
 4. Run `/femmobs reload` to apply config changes. Reload stops every running arena first. If the new config has an error, the old one stays active and the error is shown.
@@ -171,6 +171,7 @@ Any mob profile can get a `boss:` section. The bundled bosses, each with a 15-mi
 | **The Cosmic Wraith** | Wither skeleton, purple amethyst-trimmed leather, glass head | Teleports behind you, blindness, lightning; levitation below 60%, two invisible Cosmic Shades below 30% |
 | **The Hollow Reaper** | 1.5x skeleton in black leather, netherite hoe as a scythe | Wither and darkness auras, a slowing slam; Lost Soul vexes below 70% |
 | **The Frost Jarl** | 1.6x stray, diamond-trimmed iron, blue-ice head, diamond axe | Freezing slam, slowness and blizzard auras; Frost Wisp archers below 50% |
+| **The Venom Stalker** | 1.3x bogged in emerald-trimmed dark green leather with a blade | Poison I aura, pounces behind you; below 50% vanishes (invisible) and speeds up; Venom Spiders (cave spiders) below 40% |
 | **The Storm Ronin** | Fast zombie, copper bolt-trimmed chainmail, lightning-rod head, netherite sword | Lightning, dashes behind you, a knockback slam; Speed II below 50% |
 
 The Dreadbound and the Champion have a `boss:` section too, for their health bar and kill announcement, but no abilities, so they fight as before. Both glow in their own color, leave particle trails, and show a health bar to players within 40 blocks (`health-bar-range`). When one dies, the server is told who landed the final blow (`death-message`, placeholders `<mob>` and `<killer>`).

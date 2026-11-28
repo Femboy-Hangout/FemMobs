@@ -10,19 +10,16 @@ import org.bukkit.entity.Player
 import org.bukkit.event.inventory.ClickType
 import org.bukkit.inventory.Inventory
 import org.bukkit.inventory.InventoryHolder
+import org.bukkit.inventory.ItemFlag
 import org.bukkit.inventory.ItemStack
 
 /**
- * A chest menu whose slots carry their own click handlers. A new holder is created every time a
- * menu opens, so nothing is cached between openings.
+ * A chest menu in the FemItems style (dark purple "FemMobs • ..." title, light purple names, gray hints) whose
+ * slots carry their own click handlers. A new holder is created every time a menu opens; nothing is cached.
  */
 class Menu(rows: Int, title: String) : InventoryHolder {
-    private val menu: Inventory = Bukkit.createInventory(this, rows * 9, Component.text(title))
+    private val menu: Inventory = Bukkit.createInventory(this, rows * 9, Component.text(title, NamedTextColor.DARK_PURPLE))
     private val actions = mutableMapOf<Int, (Player, ClickType) -> Unit>()
-
-    init {
-        for (slot in 0 until menu.size) menu.setItem(slot, icon(Material.GRAY_STAINED_GLASS_PANE, " "))
-    }
 
     override fun getInventory(): Inventory = menu
 
@@ -44,15 +41,35 @@ class Menu(rows: Int, title: String) : InventoryHolder {
     companion object {
         /** Slots available for content in a 6-row menu; the bottom row is reserved for navigation. */
         const val PAGE_SIZE = 45
+        const val BACK_SLOT = 45
+        const val PREVIOUS_SLOT = 48
+        const val NEXT_SLOT = 50
 
-        fun icon(material: Material, title: String, color: TextColor = NamedTextColor.YELLOW, lore: List<Component> = emptyList()): ItemStack =
+        /** A labeled button. Default name color is light purple, like FemItems' category names. */
+        fun icon(material: Material, title: String, color: TextColor = NamedTextColor.LIGHT_PURPLE, lore: List<Component> = emptyList()): ItemStack =
             ItemStack(material).also { item ->
-                item.itemMeta = item.itemMeta.also { meta ->
+                item.editMeta { meta ->
                     meta.displayName(Component.text(title, color).decoration(TextDecoration.ITALIC, false))
                     if (lore.isNotEmpty()) meta.lore(lore.map { it.decorationIfAbsent(TextDecoration.ITALIC, TextDecoration.State.FALSE) })
+                    meta.addItemFlags(*ItemFlag.entries.toTypedArray())
                 }
             }
 
-        fun line(text: String, color: NamedTextColor = NamedTextColor.GRAY): Component = Component.text(text, color)
+        /** A gray detail line. */
+        fun line(text: String, color: TextColor = NamedTextColor.GRAY): Component = Component.text(text, color)
+
+        /** "Label: value" with a gray label and white value. */
+        fun field(label: String, value: String): Component =
+            Component.text("$label: ", NamedTextColor.GRAY).append(Component.text(value, NamedTextColor.WHITE))
+
+        /** The click hint at the bottom of a button, e.g. "Click: spawn 1 · Shift-click: spawn 5". */
+        fun hint(text: String): Component = Component.text(text, NamedTextColor.GRAY)
+
+        /** A colored tag line such as "★ Boss battle". */
+        fun tag(text: String, color: TextColor): Component = Component.text(text, color).decorate(TextDecoration.BOLD)
+
+        fun back(label: String): ItemStack = icon(Material.ARROW, label, NamedTextColor.YELLOW)
+        fun previous(): ItemStack = icon(Material.SPECTRAL_ARROW, "Previous page", NamedTextColor.YELLOW)
+        fun next(): ItemStack = icon(Material.SPECTRAL_ARROW, "Next page", NamedTextColor.YELLOW)
     }
 }

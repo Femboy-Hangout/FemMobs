@@ -314,6 +314,9 @@ class EventFeature(private val plugin: FemMobsPlugin) {
 
     fun isRunning(key: String) = active.containsKey(key)
 
+    /** "7:32 left · 18 mobs" for a running event, or null. */
+    fun statusOf(key: String): String? = active[key]?.let { "${clockTime(it.secondsLeft)} left · ${it.remainingMobs} mobs" }
+
     // ---------------------------------------------------------------- commands
 
     private val eventSuggestions = SuggestionProvider<CommandSourceStack> { _, builder ->
@@ -327,14 +330,14 @@ class EventFeature(private val plugin: FemMobsPlugin) {
         .then(Commands.literal("start").then(Commands.argument("event", StringArgumentType.word()).suggests(eventSuggestions)
             .then(Commands.argument("radius", IntegerArgumentType.integer(MIN_RADIUS, 1000)).executes { ctx ->
                 val sender = ctx.source.sender
-                if (sender !is Player) { sender.sendMessage("Only a player can start an event: it happens around you."); return@executes 0 }
+                if (sender !is Player) { sender.say("Only a player can start an event: it happens around you."); return@executes 0 }
                 start(sender, StringArgumentType.getString(ctx, "event"), IntegerArgumentType.getInteger(ctx, "radius"))
                 1
             })))
         .then(Commands.literal("schedule")
             .executes { ctx -> scheduleInfo(ctx.source.sender); 1 }
             .then(Commands.literal("now").executes { ctx ->
-                ctx.source.sender.sendMessage("Starting a scheduled event now (ignores enabled and min-players)...")
+                ctx.source.sender.say("Starting a scheduled event now (ignores enabled and min-players)...")
                 launchScheduled(ctx.source.sender, 0)
                 1
             }))
@@ -345,13 +348,13 @@ class EventFeature(private val plugin: FemMobsPlugin) {
 
     private fun list(sender: CommandSender) {
         val specs = plugin.eventSpecs
-        if (specs.isEmpty()) { sender.sendMessage("No events are configured. Add one under 'events' in config.yml."); return }
-        sender.sendMessage(Component.text("Events (start with /femmobs event start <event> <radius>):", NamedTextColor.GOLD))
+        if (specs.isEmpty()) { sender.say("No events are configured. Add one under 'events' in config.yml."); return }
+        sender.sendMessage(Msg.line("Events (${specs.size}) · click one to fill in its start command", Msg.Tone.INFO))
         specs.values.forEach { spec ->
             val run = active[spec.key]
-            val state = if (run == null) "idle" else "RUNNING, ${humanTime(run.secondsLeft)} left, ${run.remainingMobs} mobs"
-            sender.sendMessage(Component.text(" ${spec.key}", NamedTextColor.YELLOW)
-                .append(Component.text(" - ${spec.name}, ${describe(spec)} ($state)", NamedTextColor.GRAY)))
+            val state = if (run == null) "idle" else "RUNNING · ${humanTime(run.secondsLeft)} left · ${run.remainingMobs} mobs"
+            sender.sendMessage(Msg.entry(spec.key, "${spec.name} · ${describe(spec)} · $state",
+                "/femmobs event start ${spec.key} 25", hover = "Click to fill in /femmobs event start ${spec.key} 25"))
         }
     }
 
@@ -437,13 +440,12 @@ class EventFeature(private val plugin: FemMobsPlugin) {
         val schedule = plugin.schedule
         val total = schedule.weights.values.sum().coerceAtLeast(1)
         val minutes = ((nextScheduledAt - System.currentTimeMillis()) / 60_000).coerceAtLeast(0)
-        listOf(
-            "Automatic events: ${if (schedule.enabled) "ENABLED" else "disabled (set event-schedule.enabled: true)"}",
-            "Every ${schedule.everyMinutes} min (±${schedule.randomMinutes}), next in about $minutes min, needs ${schedule.minPlayers}+ players online.",
-            "Where: ${schedule.minDistance}-${schedule.maxDistance} blocks from X ${schedule.centerX.roundToInt()}, Z ${schedule.centerZ.roundToInt()} in '${schedule.world}', radius ${schedule.radius}.",
-            "Chances: " + schedule.weights.entries.joinToString(", ") { (key, weight) -> "${plugin.eventSpecs[key]?.name ?: key} ${weight * 100 / total}%" },
-            "Test it now with /femmobs event schedule now",
-        ).forEach(sender::sendMessage)
+        sender.sendMessage(Msg.line("Automatic events: ${if (schedule.enabled) "enabled" else "disabled (set event-schedule.enabled: true)"}",
+            if (schedule.enabled) Msg.Tone.SUCCESS else Msg.Tone.MUTED))
+        sender.sendMessage(Msg.detail("Every ${schedule.everyMinutes} min (±${schedule.randomMinutes}) · next in about $minutes min · needs ${schedule.minPlayers}+ players"))
+        sender.sendMessage(Msg.detail("${schedule.minDistance}-${schedule.maxDistance} blocks from X ${schedule.centerX.roundToInt()}, Z ${schedule.centerZ.roundToInt()} in '${schedule.world}' · radius ${schedule.radius}"))
+        sender.sendMessage(Msg.detail("Chances: " + schedule.weights.entries.joinToString(", ") { (key, weight) -> "${plugin.eventSpecs[key]?.name ?: key} ${weight * 100 / total}%" }))
+        sender.sendMessage(Msg.command("/femmobs event schedule now", "start a scheduled event right away", fill = "/femmobs event schedule now"))
     }
 
     /** Picks a weighted random event and open ground at a random spot, then starts it with exact coordinates. */

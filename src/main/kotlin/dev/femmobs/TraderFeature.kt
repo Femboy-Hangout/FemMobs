@@ -13,6 +13,7 @@ import net.kyori.adventure.text.format.NamedTextColor
 import net.kyori.adventure.text.format.TextColor
 import net.kyori.adventure.text.format.TextDecoration
 import net.kyori.adventure.text.minimessage.MiniMessage
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.Bukkit
 import org.bukkit.NamespacedKey
 import org.bukkit.command.CommandSender
@@ -56,6 +57,17 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
 
     val count: Int get() = traders.size
 
+    val saved: Collection<TraderSpec> get() = traders.values
+
+    /** The trader's name without colors, or its key. */
+    fun displayName(spec: TraderSpec): String = spec.name?.let { MiniMessage.miniMessage().stripTags(it) } ?: spec.key
+
+    /** "5x Emerald + 1x Book → 1x Enchanted Book" in plain text, for menus. */
+    fun tradeText(trade: TradeSpec): String {
+        fun item(stack: ItemStack?) = stack?.let { "${it.amount}x " + PlainTextComponentSerializer.plainText().serialize(it.effectiveName()) } ?: "?"
+        return item(trade.cost1) + (trade.cost2?.let { " + " + item(it) } ?: "") + " → " + item(trade.result)
+    }
+
     // ---------------------------------------------------------------- commands
 
     private val traderSuggestions = SuggestionProvider<CommandSourceStack> { _, builder ->
@@ -86,13 +98,13 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
      * Any error is reported in chat and logged instead of disappearing.
      */
     private fun asPlayer(sender: CommandSender, action: (Player) -> Unit): Int {
-        if (sender !is Player) { sender.sendMessage("Only a player can do that."); return 0 }
+        if (sender !is Player) { sender.say("Only a player can do that."); return 0 }
         val guarded = {
             try {
                 action(sender)
             } catch (error: Throwable) {
                 plugin.logger.log(Level.WARNING, "Trader command failed for ${sender.name}", error)
-                sender.sendMessage(Component.text("Trader command failed: $error (details in the console).", NamedTextColor.RED))
+                sender.sendMessage(Component.text("Trader command failed: $error (details in the console).", Msg.ERROR_COLOR))
             }
         }
         if (Bukkit.isOwnedByCurrentRegion(sender)) guarded()
@@ -103,24 +115,25 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
     private fun overview(sender: CommandSender) {
         val draft = (sender as? Player)?.let { drafts[it.uniqueId] }
         if (draft != null) { render(sender, draft); return }
+        sender.sendMessage(Msg.line("Traders (${traders.size} saved)", Msg.Tone.INFO))
         listOf(
-            "FemMobs traders:",
-            "/femmobs trader create <name> - build a new trader step by step in chat.",
-            "/femmobs trader edit <name> - change a saved trader.",
-            "/femmobs trader spawn <name> - spawn a saved trader in front of you.",
-            "/femmobs trader apply <name> - give the villager you're looking at a saved trader's trades.",
-            "/femmobs trader list - list saved traders.",
-            "/femmobs trader delete <name> - delete a saved trader.",
-        ).forEach(sender::sendMessage)
+            "/femmobs trader create <name>" to "build a new trader step by step",
+            "/femmobs trader edit <name>" to "change a saved trader",
+            "/femmobs trader spawn <name>" to "spawn a saved trader in front of you",
+            "/femmobs trader apply <name>" to "give the villager you look at its trades",
+            "/femmobs trader list" to "list saved traders",
+            "/femmobs trader delete <name>" to "delete a saved trader",
+        ).forEach { (command, description) -> sender.sendMessage(Msg.command(command, description)) }
     }
 
     private fun list(sender: CommandSender) {
-        if (traders.isEmpty()) { sender.sendMessage("No traders saved yet. Make one with /femmobs trader create <name>."); return }
-        sender.sendMessage(Component.text("Saved traders:", NamedTextColor.GOLD))
+        if (traders.isEmpty()) { sender.say("No traders saved yet. Make one with /femmobs trader create <name>."); return }
+        sender.sendMessage(Msg.line("Saved traders (${traders.size})", Msg.Tone.INFO))
         traders.values.forEach { trader ->
             sender.sendMessage(join(
-                Component.text(" ${trader.key}", NamedTextColor.YELLOW),
-                Component.text("${describeKind(trader)}, ${trader.trades.size} trade(s)", NamedTextColor.GRAY),
+                Component.text("  ▸", Msg.PINK_COLOR),
+                Component.text(trader.key, NamedTextColor.WHITE),
+                Component.text("— ${describeKind(trader)} · ${trader.trades.size} trade(s)", Msg.MUTED_COLOR),
                 button("Spawn", "/femmobs trader spawn ${trader.key}", "Spawn in front of you"),
                 button("Edit", "/femmobs trader edit ${trader.key}", "Open in the builder"),
             ))
@@ -130,15 +143,15 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
     private fun create(player: Player, rawName: String) {
         plugin.logger.info("[trader] ${player.name} is creating trader '$rawName'.")
         val key = rawName.lowercase()
-        if (!KEY_PATTERN.matches(key)) { player.sendMessage("Trader names may only use a-z, 0-9, _ and - (max 32 characters)."); return }
-        if (key in traders) { player.sendMessage("A trader named '$key' already exists. Use /femmobs trader edit $key."); return }
+        if (!KEY_PATTERN.matches(key)) { player.say("Trader names may only use a-z, 0-9, _ and - (max 32 characters)."); return }
+        if (key in traders) { player.say("A trader named '$key' already exists. Use /femmobs trader edit $key."); return }
         val draft = Draft(TraderSpec(key), isNew = true)
         drafts[player.uniqueId] = draft
         render(player, draft)
     }
 
-    private fun edit(player: Player, rawName: String) {
-        val saved = traders[rawName.lowercase()] ?: return player.sendMessage("No trader named '$rawName'. See /femmobs trader list.")
+    internal fun edit(player: Player, rawName: String) {
+        val saved = traders[rawName.lowercase()] ?: return player.say("No trader named '$rawName'. See /femmobs trader list.")
         val draft = Draft(saved.deepCopy(), isNew = false)
         drafts[player.uniqueId] = draft
         render(player, draft)
@@ -147,15 +160,15 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
     private fun delete(sender: CommandSender, rawName: String) {
         val key = rawName.lowercase()
         synchronized(lock) {
-            if (key !in traders) { sender.sendMessage("No trader named '$key'."); return }
+            if (key !in traders) { sender.say("No trader named '$key'."); return }
             traders = LinkedHashMap(traders).also { it.remove(key) }
             store.save(traders.values)
         }
-        sender.sendMessage("Deleted trader '$key'. Traders already spawned keep their trades.")
+        sender.say("Deleted trader '$key'. Traders already spawned keep their trades.")
     }
 
-    private fun spawnSaved(player: Player, rawName: String) {
-        val spec = traders[rawName.lowercase()] ?: return player.sendMessage("No trader named '$rawName'. See /femmobs trader list.")
+    internal fun spawnSaved(player: Player, rawName: String) {
+        val spec = traders[rawName.lowercase()] ?: return player.say("No trader named '$rawName'. See /femmobs trader list.")
         spawn(player, spec)
     }
 
@@ -169,11 +182,11 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
     }
 
     private fun applyToTarget(player: Player, rawName: String) {
-        val spec = traders[rawName.lowercase()] ?: return player.sendMessage("No trader named '$rawName'. See /femmobs trader list.")
+        val spec = traders[rawName.lowercase()] ?: return player.say("No trader named '$rawName'. See /femmobs trader list.")
         val target = player.getTargetEntity(8) as? AbstractVillager
-            ?: return player.sendMessage("Look at a villager or wandering trader within 8 blocks first.")
+            ?: return player.say("Look at a villager or wandering trader within 8 blocks first.")
         if (target is Villager && (target.profession.key.key == "none" || target.profession.key.key == "nitwit")) {
-            return player.sendMessage("Unemployed villagers and nitwits can't trade. Spawn one with /femmobs trader spawn ${spec.key} instead.")
+            return player.say("Unemployed villagers and nitwits can't trade. Spawn one with /femmobs trader spawn ${spec.key} instead.")
         }
         target.scheduler.run(plugin, {
             if (target is Villager && target.villagerExperience == 0) target.villagerExperience = 1 // keeps its job
@@ -186,7 +199,7 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
 
     private fun builderAction(player: Player, input: String) {
         val draft = drafts[player.uniqueId]
-            ?: return player.sendMessage("You aren't building a trader. Start with /femmobs trader create <name>.")
+            ?: return player.say("You aren't building a trader. Start with /femmobs trader create <name>.")
         val spec = draft.spec
         val args = input.trim().split(" ")
         val error: String? = when (args[0]) {
@@ -228,12 +241,12 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
             "save" -> save(player, draft)
             "discard" -> {
                 drafts.remove(player.uniqueId)
-                player.sendMessage(Component.text("Discarded your changes to '${spec.key}'.", NamedTextColor.GRAY))
+                player.sendMessage(Component.text("Discarded your changes to '${spec.key}'.", Msg.MUTED_COLOR))
                 return
             }
             else -> "Unknown builder action."
         }
-        if (error != null) player.sendMessage(Component.text(error, NamedTextColor.RED))
+        if (error != null) player.sendMessage(Component.text(error, Msg.ERROR_COLOR))
         if (drafts[player.uniqueId] === draft) render(player, draft)
     }
 
@@ -277,7 +290,7 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
         }
         drafts.remove(player.uniqueId)
         player.sendMessage(join(
-            Component.text("Saved trader '${spec.key}'.", NamedTextColor.GREEN),
+            Component.text("Saved trader '${spec.key}'.", Msg.SUCCESS_COLOR),
             button("Spawn now", "/femmobs trader spawn ${spec.key}", "Spawn it in front of you"),
             button("Edit again", "/femmobs trader edit ${spec.key}", "Reopen the builder"),
         ))
@@ -296,12 +309,12 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
         if (draft.step !in steps) draft.step = Step.TYPE
         val lines = mutableListOf<Component>()
         lines += Component.empty()
-        lines += Component.text("━━━ Trader '${spec.key}' ━━━ ", NamedTextColor.GOLD).decorate(TextDecoration.BOLD)
-            .append(Component.text("step ${steps.indexOf(draft.step) + 1}/${steps.size}", NamedTextColor.GRAY).decoration(TextDecoration.BOLD, false))
+        lines += Component.text("━━━ Trader '${spec.key}' ━━━ ", Msg.PINK_COLOR).decorate(TextDecoration.BOLD)
+            .append(Component.text("step ${steps.indexOf(draft.step) + 1}/${steps.size}", Msg.MUTED_COLOR).decoration(TextDecoration.BOLD, false))
         // Clickable step bar: jump straight to any part.
         lines += Component.join(JoinConfiguration.separator(Component.text(" › ", NamedTextColor.DARK_GRAY)), steps.map { step ->
             val current = step == draft.step
-            Component.text(step.title, if (current) NamedTextColor.YELLOW else NamedTextColor.GRAY)
+            Component.text(step.title, if (current) Msg.PINK_COLOR else Msg.MUTED_COLOR)
                 .decoration(TextDecoration.UNDERLINED, current)
                 .clickEvent(ClickEvent.runCommand("$B step ${step.name}"))
                 .hoverEvent(HoverEvent.showText(Component.text("Go to ${step.title}")))
@@ -336,8 +349,8 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
         val nav = mutableListOf<Component>()
         if (index > 0) nav += button("◀ Back", "$B back", "Previous step", NamedTextColor.WHITE)
         if (index < steps.lastIndex) nav += button("Next ▶", "$B next", "Next step", NamedTextColor.WHITE)
-        nav += button("Save", "$B save", "Save this trader to traders.yml", NamedTextColor.GREEN)
-        nav += button("Discard", "$B discard", "Throw away these changes", NamedTextColor.RED)
+        nav += button("Save", "$B save", "Save this trader to traders.yml", Msg.SUCCESS_COLOR)
+        nav += button("Discard", "$B discard", "Throw away these changes", Msg.ERROR_COLOR)
         lines += join(nav)
         lines.forEach(player::sendMessage)
         plugin.logger.info("[trader] Showed ${player.name} the ${draft.step.title} step of '${spec.key}' (${lines.size} lines).")
@@ -347,7 +360,7 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
         val name = spec.name?.let { MiniMessage.miniMessage().deserialize(it) } ?: Component.text("none", NamedTextColor.DARK_GRAY)
         fun toggle(label: String, on: Boolean, flag: String, hover: String) = join(
             Component.text("$label: ", NamedTextColor.WHITE),
-            Component.text(if (on) "ON" else "OFF", if (on) NamedTextColor.GREEN else NamedTextColor.RED),
+            Component.text(if (on) "ON" else "OFF", if (on) Msg.SUCCESS_COLOR else Msg.ERROR_COLOR),
             button("Toggle", "$B toggle $flag", hover),
         )
         return listOf(
@@ -365,19 +378,19 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
 
     private fun tradeListLines(spec: TraderSpec): List<Component> {
         val lines = mutableListOf<Component>()
-        if (spec.trades.isEmpty()) lines += Component.text("No trades yet.", NamedTextColor.GRAY)
+        if (spec.trades.isEmpty()) lines += Component.text("No trades yet.", Msg.MUTED_COLOR)
         spec.trades.forEachIndexed { i, trade ->
             val n = i + 1
             lines += join(
-                Component.text("#$n", NamedTextColor.YELLOW),
+                Component.text("#$n", Msg.PINK_COLOR),
                 tradeSummary(trade),
                 button("Edit", "$B trade $n edit", "Change this trade"),
                 button("↑", "$B trade $n up", "Move up"),
                 button("↓", "$B trade $n down", "Move down"),
-                button("✖", "$B trade $n remove", "Remove this trade", NamedTextColor.RED),
+                button("✖", "$B trade $n remove", "Remove this trade", Msg.ERROR_COLOR),
             )
         }
-        lines += button("+ Add trade", "$B trade-add", "Add a new trade", NamedTextColor.GREEN)
+        lines += button("+ Add trade", "$B trade-add", "Add a new trade", Msg.SUCCESS_COLOR)
         return lines
     }
 
@@ -396,10 +409,10 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
                 button("Set number", "$B trade $n uses ", "Type how many times it works", suggest = true)),
             join(label("Villager XP"), Component.text(trade.villagerXp.toString(), NamedTextColor.AQUA),
                 button("Set", "$B trade $n xp ", "XP the villager gains per trade (cosmetic; it won't gain trades)", suggest = true)),
-            join(label("Fixed price"), Component.text(if (trade.fixedPrice) "ON" else "OFF", if (trade.fixedPrice) NamedTextColor.GREEN else NamedTextColor.RED),
+            join(label("Fixed price"), Component.text(if (trade.fixedPrice) "ON" else "OFF", if (trade.fixedPrice) Msg.SUCCESS_COLOR else Msg.ERROR_COLOR),
                 button("Toggle", "$B trade $n fixed", "ON: reputation, discounts and demand never change the price")),
-            join(button("✔ Done", "$B trade $n done", "Back to the trade list", NamedTextColor.GREEN),
-                button("✖ Remove trade", "$B trade $n remove", "Delete this trade", NamedTextColor.RED)),
+            join(button("✔ Done", "$B trade $n done", "Back to the trade list", Msg.SUCCESS_COLOR),
+                button("✖ Remove trade", "$B trade $n remove", "Delete this trade", Msg.ERROR_COLOR)),
         )
     }
 
@@ -415,41 +428,41 @@ class TraderFeature(private val plugin: FemMobsPlugin, dataFolder: File) : Liste
             join(label("Behavior"), Component.text(flags, NamedTextColor.AQUA)),
             label("Trades (${spec.trades.size})"),
         )
-        spec.trades.forEachIndexed { i, trade -> lines += join(Component.text("  #${i + 1}", NamedTextColor.YELLOW), tradeSummary(trade)) }
+        spec.trades.forEachIndexed { i, trade -> lines += join(Component.text("  #${i + 1}", Msg.PINK_COLOR), tradeSummary(trade)) }
         lines += Component.empty()
         lines += join(
-            button("Save", "$B save", "Save to traders.yml", NamedTextColor.GREEN),
+            button("Save", "$B save", "Save to traders.yml", Msg.SUCCESS_COLOR),
             button("Spawn preview", "$B preview", "Spawn this draft in front of you without saving"),
         )
         return lines
     }
 
-    private fun describeKind(spec: TraderSpec): String =
+    internal fun describeKind(spec: TraderSpec): String =
         if (spec.kind == TraderKind.WANDERING_TRADER) "Wandering trader"
         else "${TraderSpec.LEVEL_NAMES[spec.level - 1]} ${pretty(spec.biome)} ${pretty(spec.profession)}"
 
     private fun tradeSummary(trade: TradeSpec): Component {
         val parts = mutableListOf(item(trade.cost1, "?"))
-        trade.cost2?.let { parts += Component.text("+", NamedTextColor.GRAY); parts += item(it, "") }
-        parts += Component.text("→", NamedTextColor.GRAY)
+        trade.cost2?.let { parts += Component.text("+", Msg.MUTED_COLOR); parts += item(it, "") }
+        parts += Component.text("→", Msg.MUTED_COLOR)
         parts += item(trade.result, "?")
         parts += Component.text("(${usesText(trade)}${if (trade.fixedPrice) "" else ", price can change"})", NamedTextColor.DARK_GRAY)
-        if (!trade.complete) parts += Component.text("incomplete", NamedTextColor.RED)
+        if (!trade.complete) parts += Component.text("incomplete", Msg.ERROR_COLOR)
         return join(parts)
     }
 
     private fun usesText(trade: TradeSpec) = if (trade.maxUses == TradeSpec.UNLIMITED) "unlimited uses" else "${trade.maxUses} uses"
 
     private fun item(stack: ItemStack?, empty: String): Component =
-        if (stack == null) Component.text(empty, if (empty == "?" || empty == "not set") NamedTextColor.RED else NamedTextColor.DARK_GRAY)
+        if (stack == null) Component.text(empty, if (empty == "?" || empty == "not set") Msg.ERROR_COLOR else NamedTextColor.DARK_GRAY)
         else Component.text("${stack.amount}x ", NamedTextColor.WHITE).append(stack.displayName()) // displayName() hovers the full item
 
     private fun label(text: String) = Component.text("$text:", NamedTextColor.WHITE)
 
     private fun option(label: String, selected: Boolean, command: String, hover: String) =
-        button(if (selected) "✔ $label" else label, command, hover, if (selected) NamedTextColor.GREEN else NamedTextColor.GRAY)
+        button(if (selected) "✔ $label" else label, command, hover, if (selected) Msg.SUCCESS_COLOR else Msg.MUTED_COLOR)
 
-    private fun button(label: String, command: String, hover: String, color: TextColor = NamedTextColor.AQUA, suggest: Boolean = false): Component =
+    private fun button(label: String, command: String, hover: String, color: TextColor = Msg.LAVENDER_COLOR, suggest: Boolean = false): Component =
         Component.text("[$label]", color)
             .clickEvent(if (suggest) ClickEvent.suggestCommand(command) else ClickEvent.runCommand(command))
             .hoverEvent(HoverEvent.showText(Component.text(hover)))
